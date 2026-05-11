@@ -8,16 +8,15 @@ export const CATEGORIES = {
   dining:        { label: 'Dining Out',      icon: '🍽️', color: 'amber' },
   transport:     { label: 'Transport',       icon: '🚗', color: 'blue'  },
   utilities:     { label: 'Utilities',       icon: '💡', color: 'teal'  },
-  healthcare:    { label: 'Healthcare',      icon: '🏥', color: 'rose'  },
+  medical:       { label: 'Medical',      icon: '🏥', color: 'rose'  },
   kids:          { label: 'Kids',            icon: '👶', color: 'pink'  },
   shopping:      { label: 'Shopping',        icon: '🛍️', color: 'purple'},
   entertainment: { label: 'Entertainment',   icon: '🎭', color: 'indigo'},
   fitness:       { label: 'Fitness',         icon: '💪', color: 'green' },
-  beauty:        { label: 'Beauty & Care',   icon: '💅', color: 'rose'  },
-  home:          { label: 'Home & Living',   icon: '🏠', color: 'amber' },
+  household:     { label: 'Household',   icon: '🏠', color: 'amber' },
   travel:        { label: 'Travel',          icon: '✈️', color: 'blue'  },
-  investment:    { label: 'Investment',      icon: '📈', color: 'navy'  },
-  transfer:      { label: 'Transfer',        icon: '↔️', color: 'muted' },
+  investments:   { label: 'Investments',      icon: '📈', color: 'navy'  },
+  transfers:     { label: 'Transfers',        icon: '↔️', color: 'muted' },
   salary:        { label: 'Salary',          icon: '💰', color: 'sage'  },
   mortgage:      { label: 'Mortgage / EMI',  icon: '🏦', color: 'navy'  },
   domestic:      { label: 'Domestic Help',   icon: '🧹', color: 'teal'  },
@@ -40,10 +39,10 @@ const RULES = [
   { keywords: ['loanrecovery','loan recovery','emi','mortgage'], category: 'mortgage' },
 
   // ── Transfers (internal) ───────────────────────────────────────────────────
-  { keywords: ['credit repayment','transfer','trf out','trf in','sent from wio','sent from','own account','to kedar','to anisha','internet banking','ibaa','ibab','ibac','ibaj','fixed saving space','living expenses fund','monthly expenses fund','yuvi','family account','joint current'], category: 'transfer' },
+  { keywords: ['credit repayment','transfer','trf out','trf in','sent from wio','sent from','own account','to kedar','to anisha','internet banking','ibaa','ibab','ibac','ibaj','fixed saving space','living expenses fund','monthly expenses fund','yuvi','family account','joint current'], category: 'transfers' },
 
   // ── Investment ─────────────────────────────────────────────────────────────
-  { keywords: ['dividend','debit interest capitalized','interest payout','interest credit','interest applied','subs allianz','subs frnkl','subs blc','early withdrawal interest'], category: 'investment' },
+  { keywords: ['dividend','debit interest capitalized','interest payout','interest credit','interest applied','subs allianz','subs frnkl','subs blc','early withdrawal interest'], category: 'investments' },
 
   // ── Groceries ─────────────────────────────────────────────────────────────
   { keywords: ['spinneys','lulu hypermarket','lulu','carrefour','choithram','nesto','al adil','shree durgas','plus point exp','oqaryah','bayara world','jackson trading'], category: 'groceries' },
@@ -58,7 +57,7 @@ const RULES = [
   { keywords: ['dubai electricity','dewa','du apple pay','du telecom',' du ','enoc','adnoc','mobimatter','tel ','cca salsabeel'], category: 'utilities' },
 
   // ── Healthcare ────────────────────────────────────────────────────────────
-  { keywords: ['mediclinic','supercare pharmacy','super care pharmacy','alphamed','feetlab','chemist warehouse','life phy','cashiering office','myorganicapps','myaster'], category: 'healthcare' },
+  { keywords: ['mediclinic','supercare pharmacy','super care pharmacy','alphamed','feetlab','chemist warehouse','life phy','cashiering office','myorganicapps','myaster'], category: 'medical' },
 
   // ── Kids ──────────────────────────────────────────────────────────────────
   { keywords: ['mumzworld','little giggles','sa headway','baby loves','kinokuniya','noon food','noon'], category: 'kids' },
@@ -67,10 +66,10 @@ const RULES = [
   { keywords: ['gymnation','fitness first','urbanclap','ureka sloan'], category: 'fitness' },
 
   // ── Beauty & Care ─────────────────────────────────────────────────────────
-  { keywords: ['paparazzi salon','parffragrance'], category: 'beauty' },
+  { keywords: ['paparazzi salon','parffragrance'], category: 'shopping' },
 
   // ── Home & Living ─────────────────────────────────────────────────────────
-  { keywords: ['ikea','royaloak','home box','dpem','nomod allied pest','pest con','amazon'], category: 'home' },
+  { keywords: ['ikea','royaloak','home box','dpem','nomod allied pest','pest con','amazon'], category: 'household' },
 
   // ── Shopping ──────────────────────────────────────────────────────────────
   { keywords: ['athlet co','adidas','vans','fitflop','ovs','uniqlo','iznish fashion','lril','mom store','noor abbas','crossword','www pimpedwatches','temu','miniso','tiger','black fortune','tabby','footlocker','controlled model','desco','konci trading','dudu trading','talabat','paymob','new mart','maids cc'], category: 'shopping' },
@@ -115,9 +114,9 @@ export function categoriseTransaction(txn) {
   if (txn.amount > 0) {
     const d = (txn.description || '').toLowerCase()
     if (d.includes('salary')) return 'salary'
-    if (d.includes('dividend') || d.includes('interest')) return 'investment'
-    if (d.includes('credit repayment') || d.includes('transfer')) return 'transfer'
-    return 'transfer' // most positive amounts are transfers/refunds
+    if (d.includes('dividend') || d.includes('interest')) return 'investments'
+    if (d.includes('credit repayment') || d.includes('transfer')) return 'transfers'
+    return 'transfers' // most positive amounts are transfers/refunds
   }
   return categorise(txn.description)
 }

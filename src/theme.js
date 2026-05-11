@@ -20,13 +20,13 @@ export const COLORS = {
 }
 
 export const ACCOUNT_TYPE_COLORS = {
-  current:      { bg: 'bg-blue-lt', text: 'text-blue', dot: 'bg-blue' },
-  savings:      { bg: 'bg-sage-lt', text: 'text-sage', dot: 'bg-sage' },
-  credit_card:  { bg: 'bg-rose-lt', text: 'text-rose', dot: 'bg-rose' },
+  current:      { bg: 'bg-blue-lt',  text: 'text-blue',  dot: 'bg-blue'  },
+  savings:      { bg: 'bg-sage-lt',  text: 'text-sage',  dot: 'bg-sage'  },
+  credit_card:  { bg: 'bg-rose-lt',  text: 'text-rose',  dot: 'bg-rose'  },
   investment:   { bg: 'bg-amber-lt', text: 'text-amber', dot: 'bg-amber' },
-  fixed_deposit:{ bg: 'bg-teal-lt', text: 'text-teal', dot: 'bg-teal' },
+  fixed_deposit:{ bg: 'bg-teal-lt',  text: 'text-teal',  dot: 'bg-teal'  },
   pension:      { bg: 'bg-navy-lt text-white', text: 'text-white', dot: 'bg-white' },
-  mortgage:     { bg: 'bg-rose-lt', text: 'text-rose', dot: 'bg-rose' },
+  mortgage:     { bg: 'bg-rose-lt',  text: 'text-rose',  dot: 'bg-rose'  },
 }
 
 export const COUNTRY_FLAGS = {
@@ -36,19 +36,39 @@ export const COUNTRY_FLAGS = {
   Singapore: '🇸🇬',
 }
 
+// Single source of truth for all transaction categories
+// Used by: Budgets, Dashboard burn rate, categoryRules auto-tagger
 export const CATEGORY_META = {
-  groceries:     { label: 'Groceries',     icon: '🛒',  color: 'sage'  },
-  dining:        { label: 'Dining',        icon: '🍽️',  color: 'amber' },
-  travel:        { label: 'Travel',        icon: '✈️',  color: 'blue'  },
-  school:        { label: 'School',        icon: '📚',  color: 'navy'  },
-  utilities:     { label: 'Utilities',     icon: '💡',  color: 'teal'  },
-  medical:       { label: 'Medical',       icon: '🏥',  color: 'rose'  },
-  entertainment: { label: 'Entertainment', icon: '🎬',  color: 'amber' },
-  household:     { label: 'Household',     icon: '🏠',  color: 'sage'  },
-  transfers:     { label: 'Transfers',     icon: '↔️',  color: 'muted' },
-  investments:   { label: 'Investments',   icon: '📈',  color: 'navy'  },
-  other:         { label: 'Other',         icon: '📦',  color: 'muted' },
-  salary:        { label: 'Salary',        icon: '💰',  color: 'sage'  },
-  rental:        { label: 'Rental Income', icon: '🏘️',  color: 'sage'  },
-  dividends:     { label: 'Dividends',     icon: '📊',  color: 'blue'  },
+  // ── Income ────────────────────────────────────────────────────────────────
+  salary:        { label: 'Salary',          icon: '💰', color: 'sage'  },
+  dividends:     { label: 'Dividends',       icon: '📊', color: 'blue'  },
+  investments:   { label: 'Investments',     icon: '📈', color: 'navy'  },
+
+  // ── Daily Spend ───────────────────────────────────────────────────────────
+  groceries:     { label: 'Groceries',       icon: '🛒', color: 'sage'  },
+  dining:        { label: 'Dining',          icon: '🍽️', color: 'amber' },
+  transport:     { label: 'Transport',       icon: '🚗', color: 'blue'  },
+  utilities:     { label: 'Utilities',       icon: '💡', color: 'teal'  },
+
+  // ── Family & Home ─────────────────────────────────────────────────────────
+  household:     { label: 'Household',       icon: '🏠', color: 'sage'  },
+  kids:          { label: 'Kids',            icon: '👶', color: 'teal'  },
+  domestic:      { label: 'Domestic Help',   icon: '🧹', color: 'teal'  },
+
+  // ── Lifestyle ─────────────────────────────────────────────────────────────
+  shopping:      { label: 'Shopping',        icon: '🛍️', color: 'amber' },
+  entertainment: { label: 'Entertainment',   icon: '🎬', color: 'amber' },
+  fitness:       { label: 'Fitness',         icon: '💪', color: 'sage'  },
+  travel:        { label: 'Travel',          icon: '✈️', color: 'blue'  },
+
+  // ── Health ────────────────────────────────────────────────────────────────
+  medical:       { label: 'Medical',         icon: '🏥', color: 'rose'  },
+
+  // ── Finance ───────────────────────────────────────────────────────────────
+  mortgage:      { label: 'Mortgage / EMI',  icon: '🏦', color: 'navy'  },
+  transfers:     { label: 'Transfers',       icon: '↔️', color: 'muted' },
+  fees:          { label: 'Fees & Charges',  icon: '📋', color: 'muted' },
+
+  // ── Fallback ──────────────────────────────────────────────────────────────
+  other:         { label: 'Other',           icon: '📦', color: 'muted' },
 }
