@@ -96,14 +96,20 @@ function StatementImportModal({ onClose }) {
     }))
     useMinervaStore.setState(s => ({ transactions: [...s.transactions, ...newTxns] }))
 
-    // Update account reconciled balance directly
+    // Update account reconciled balance + store any discrepancy
     if (parsed.closingBalance !== null && parsed.closingBalance !== undefined) {
       const closingDate = parsed.period?.split(' to ')[1] ?? new Date().toISOString().slice(0, 10)
+      const check = reconCheck
       const accounts = useMinervaStore.getState().accounts
       useMinervaStore.setState({
         accounts: accounts.map(a =>
           a.id === accountId
-            ? { ...a, reconciledBalance: parsed.closingBalance, reconciledAt: closingDate }
+            ? {
+                ...a,
+                reconciledBalance:     parsed.closingBalance,
+                reconciledAt:          closingDate,
+                reconciledDiscrepancy: check ? parseFloat(check.diff.toFixed(2)) : 0,
+              }
             : a
         )
       })

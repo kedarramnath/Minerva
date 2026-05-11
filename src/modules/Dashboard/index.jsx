@@ -425,8 +425,12 @@ function ImportStatus() {
                   <div className="text-right flex-shrink-0">
                     <p className="text-[10px] font-mono font-semibold text-slate">{s.count} txns</p>
                     <p className="text-[9px] font-mono text-muted">last: {s.to}</p>
+                    {s.discrepancy > 0.01 && (
+                      <p className="text-[9px] font-mono text-rose">⚠ off by {s.currency} {s.discrepancy.toFixed(2)}</p>
+                    )}
                   </div>
                   <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                    s.discrepancy > 0.01 ? 'bg-rose' :
                     s.to >= new Date(Date.now() - 30*24*60*60*1000).toISOString().slice(0,10)
                       ? 'bg-sage' : 'bg-amber'
                   }`} />
@@ -436,6 +440,67 @@ function ImportStatus() {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+
+// ─── Credit Card Summary ──────────────────────────────────────────────────────
+function CreditCardSummary({ onTapAccount }) {
+  const accounts        = useMinervaStore(s => s.accounts)
+  const selectLiveBalance = useMinervaStore(s => s.selectLiveBalance)
+  const activeCurrency  = useMinervaStore(s => s.activeCurrency)
+  const selectInDisplay = useMinervaStore(s => s.selectInDisplayCurrency)
+  const ownerFilter     = useMinervaStore(s => s.ownerFilter)
+
+  const cards = accounts.filter(a =>
+    a.active && a.type === 'credit_card' &&
+    (!ownerFilter || ownerFilter === 'all' || a.owner === ownerFilter || a.owner === 'Family')
+  )
+
+  if (!cards.length) return null
+
+  const fmt = (v, cur) => {
+    const aed = cur === 'AED' ? v : cur === 'USD' ? v * 3.6725 : v
+    return selectInDisplay(aed)
+  }
+
+  return (
+    <div className="mx-5 mt-3 rounded-2xl bg-surface border border-border overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/40">
+        <span className="text-[10px] font-mono text-muted uppercase tracking-widest">Credit Cards</span>
+        <span className="text-[10px] font-mono text-rose">Outstanding</span>
+      </div>
+      {cards.map((card, i) => {
+        const bal = selectLiveBalance(card.id)
+        // CC: positive live balance = money owed
+        const owed = Math.max(0, bal)
+        const hasData = card.reconciledAt !== null && card.reconciledAt !== undefined
+        return (
+          <button
+            key={card.id}
+            onClick={() => onTapAccount?.(card)}
+            className={`w-full flex items-center justify-between px-4 py-2.5 active:bg-alabaster ${
+              i < cards.length - 1 ? 'border-b border-border/40' : ''
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <div className={`w-1.5 h-1.5 rounded-full ${hasData ? 'bg-sage' : 'bg-amber'}`} />
+              <span className="text-xs text-slate">{card.shortName}</span>
+              <span className="text-[9px] font-mono text-muted">{card.currency}</span>
+            </div>
+            <div className="text-right">
+              {hasData ? (
+                <span className={`text-xs font-mono tabular-nums ${owed > 0 ? 'text-rose' : 'text-sage'}`}>
+                  {owed > 0 ? '-' : ''}{fmt(owed, card.currency)}
+                </span>
+              ) : (
+                <span className="text-[10px] font-mono text-amber">No data</span>
+              )}
+            </div>
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -986,7 +1051,8 @@ export function Dashboard({ onOpenReconcile }) {
           <SurplusProjection />
           <FCNRBanner />
           <ReconcileBar onOpenOpening={openReconcile} onOpenReconcile={openReconcile} />
-          <ImportStatus />
+          <CreditCardSummary onTapAccount={setReconcileAcct} />
+        <ImportStatus />
         <ReconciliationStatus />
           <CashByCountry />
           <BurnRates />
