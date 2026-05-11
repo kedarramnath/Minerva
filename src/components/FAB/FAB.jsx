@@ -20,8 +20,20 @@ export function FAB() {
 
   const ctx = TAB_CONTEXT[activeTab] || TAB_CONTEXT.dashboard
 
+  const showImport = activeTab === 'dashboard'
+
   return (
     <>
+      {/* Import Statement button — only on dashboard */}
+      {showImport && !fabOpen && (
+        <button
+          onClick={() => openFAB('import')}
+          className="fixed bottom-24 right-20 z-50 h-14 px-3 rounded-2xl shadow-fab flex items-center gap-1.5 bg-teal text-white text-[11px] font-mono font-medium transition-all active:scale-95"
+        >
+          <span>📂</span> Import
+        </button>
+      )}
+
       {/* FAB Button */}
       <button
         onClick={() => fabOpen ? closeFAB() : openFAB(activeTab)}

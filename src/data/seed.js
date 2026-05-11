@@ -15,8 +15,9 @@ export const ACCOUNTS_SEED = [
   // ── UAE — KEDAR ────────────────────────────────────────────────────────
   {
     id: 'adcb-consolidated-kedar',
-    name: 'ADCB Consolidated',
-    shortName: 'ADCB Main',
+    name: 'ADCB Current — 13091504920001',
+    shortName: 'ADCB AED',
+    accountNumber: '13091504920001',
     owner: 'Kedar',
     type: 'current',
     currency: 'AED',
@@ -29,8 +30,9 @@ export const ACCOUNTS_SEED = [
   },
   {
     id: 'adcb-investment-kedar',
-    name: 'ADCB Investment Portfolio',
+    name: 'ADCB Investment — 13091504920003',
     shortName: 'ADCB Invest',
+    accountNumber: '13091504920003',
     owner: 'Kedar',
     type: 'investment',
     currency: 'USD',
@@ -43,7 +45,8 @@ export const ACCOUNTS_SEED = [
   },
   {
     id: 'enbd-current-kedar',
-    name: 'Emirates NBD Current',
+    name: 'Emirates NBD Current — 101XXXXXXXX01',
+    accountNumber: '101XXXXXXXX01',
     shortName: 'ENBD',
     owner: 'Kedar',
     type: 'current',
@@ -56,7 +59,8 @@ export const ACCOUNTS_SEED = [
   },
   {
     id: 'enbd-cc-kedar',
-    name: 'Emirates NBD Credit Card',
+    name: 'ENBD Credit Card — 432114******3375',
+    accountNumber: '432114******3375',
     shortName: 'ENBD CC',
     owner: 'Kedar',
     type: 'credit_card',
@@ -153,7 +157,22 @@ export const ACCOUNTS_SEED = [
     active: true,
   },
 
-  // ── UAE — ANISHA ───────────────────────────────────────────────────────
+  {
+    id: 'adcb-usd-savings',
+    name: 'ADCB USD Savings — 13091504910001',
+    shortName: 'ADCB USD',
+    accountNumber: '13091504910001',
+    owner: 'Kedar',
+    type: 'savings',
+    currency: 'USD',
+    country: 'UAE',
+    institution: 'ADCB',
+    reconciledBalance: 0.07,
+    reconciledDate: '2026-04-30',
+    notes: 'USD savings account. Interest only.',
+    active: true,
+  },
+
   {
     id: 'adcb-islamic-anisha',
     name: 'ADCB Islamic Current',

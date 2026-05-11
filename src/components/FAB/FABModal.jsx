@@ -1,11 +1,263 @@
 // src/components/FAB/FABModal.jsx
 import { useState, useRef } from 'react'
 import { useMinervaStore } from '../../state/store.js'
+import { parseStatement, parseStatementRows, ACCOUNT_NUMBER_MAP, detectBank } from '../../utils/statementParsers.js'
 import { CATEGORY_META } from '../../theme.js'
+
+
+// ── Statement Import Modal ────────────────────────────────────────────────────
+function StatementImportModal({ onClose }) {
+  const accounts       = useMinervaStore(s => s.accounts)
+  const addTransaction = useMinervaStore(s => s.addTransaction)
+  const reconcile      = useMinervaStore(s => s.reconcile)
+
+  const [step, setStep]         = useState('upload')   // upload | preview | done
+  const [parsed, setParsed]     = useState(null)
+  const [accountId, setAccountId] = useState('')
+  const [error, setError]       = useState(null)
+  const [importing, setImporting] = useState(false)
+  const fileRef                 = useRef(null)
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setError(null)
+
+    const isXlsx = file.name.endsWith('.xlsx') || file.name.endsWith('.xls')
+
+    if (isXlsx) {
+      // Read XLSX using SheetJS
+      try {
+        const XLSX = await import('xlsx')
+        const buffer = await file.arrayBuffer()
+        const wb    = XLSX.read(buffer, { type: 'array' })
+        const ws    = wb.Sheets[wb.SheetNames[0]]
+        const rows  = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
+
+        const result = parseStatementRows(rows)
+        if (result.error) { setError(result.error); return }
+
+        // For ENBD current: try to match by bank
+        let matchedId = ACCOUNT_NUMBER_MAP[result.accountNumber] ?? ''
+        if (!matchedId && result.bankName === 'ENBD') {
+          if (result.accountType === 'credit_card') matchedId = 'enbd-cc-kedar'
+          else matchedId = 'enbd-current-kedar'
+        }
+        setAccountId(matchedId)
+        setParsed(result)
+        setStep('preview')
+      } catch (err) {
+        setError('Failed to read Excel file: ' + err.message)
+      }
+    } else {
+      // Read CSV as text
+      const reader = new FileReader()
+      reader.onload = (ev) => {
+        const text = ev.target.result
+        const bank = detectBank(text)
+        if (!bank) {
+          setError('Bank format not recognised. Supported: ADCB (CSV), ENBD (XLSX).')
+          return
+        }
+        const result = parseStatement(text, bank)
+        if (result.error) { setError(result.error); return }
+        const matchedId = ACCOUNT_NUMBER_MAP[result.accountNumber] ?? ''
+        setAccountId(matchedId)
+        setParsed(result)
+        setError(null)
+        setStep('preview')
+      }
+      reader.readAsText(file)
+    }
+  }
+
+  const handleImport = () => {
+    if (!parsed || !accountId) return
+    setImporting(true)
+
+    // Bulk import transactions
+    parsed.transactions.forEach(txn => {
+      addTransaction({
+        date:        txn.date,
+        accountId,
+        amount:      txn.amount,
+        currency:    txn.currency,
+        description: txn.description,
+        category:    txn.amount > 0 ? 'income' : 'other',
+        loggedBy:    'Import',
+        reference:   txn.reference,
+        type:        'imported',
+        status:      'imported',
+      })
+    })
+
+    // Reconcile with closing balance
+    reconcile?.({
+      accountId,
+      reconciledBalance: parsed.closingBalance,
+      reconciledDate:    parsed.period?.split(' to ')[1] ?? new Date().toISOString().slice(0, 10),
+      drift:             0,
+      month:             parsed.period?.split(' to ')[1]?.slice(0, 7) ?? new Date().toISOString().slice(0, 7),
+    })
+
+    setStep('done')
+    setImporting(false)
+  }
+
+  // Reconciliation check
+  const reconCheck = parsed ? (() => {
+    const sum = parsed.transactions.reduce((s, t) => s + t.amount, 0)
+    const expected = parsed.openingBalance + sum
+    const diff = Math.abs(expected - parsed.closingBalance)
+    return { sum, expected, diff, ok: diff < 0.1 }
+  })() : null
+
+  const activeAccounts = accounts.filter(a => a.active)
+
+  if (step === 'done') return (
+    <div className="fixed bottom-0 left-0 right-0 z-50">
+      <div className="bg-surface rounded-t-3xl shadow-2xl p-5 pb-10 text-center">
+        <div className="w-10 h-1 bg-border rounded-full mx-auto mb-6" />
+        <p className="text-4xl mb-3">✅</p>
+        <p className="text-base font-bold text-navy">Import Complete</p>
+        <p className="text-xs font-mono text-muted mt-1">
+          {parsed.transactions.length} transactions imported
+        </p>
+        {reconCheck && (
+          <div className={`mt-4 px-4 py-2.5 rounded-xl text-xs font-mono ${reconCheck.ok ? 'bg-sage-lt text-sage' : 'bg-rose-lt text-rose'}`}>
+            {reconCheck.ok
+              ? '✓ Balances reconciled'
+              : `⚠ Discrepancy: ${parsed.currency} ${reconCheck.diff.toFixed(2)}`
+            }
+          </div>
+        )}
+        <button onClick={onClose}
+          className="mt-6 w-full py-3.5 bg-navy text-white rounded-2xl text-sm font-semibold">
+          Done
+        </button>
+      </div>
+    </div>
+  )
+
+  if (step === 'preview' && parsed) return (
+    <div className="fixed bottom-0 left-0 right-0 z-50">
+      <div className="bg-surface rounded-t-3xl shadow-2xl p-5 pb-10 max-h-[85vh] overflow-y-auto">
+        <div className="w-10 h-1 bg-border rounded-full mx-auto mb-4" />
+        <h3 className="text-base font-semibold text-navy mb-1">Preview Import</h3>
+        <p className="text-xs font-mono text-muted mb-4">{parsed.bankName} · {parsed.accountNumber} · {parsed.currency}</p>
+
+        {/* Reconciliation check */}
+        <div className={`rounded-xl p-3 mb-4 ${reconCheck?.ok ? 'bg-sage-lt/50 border border-sage/20' : 'bg-rose-lt/50 border border-rose/20'}`}>
+          <div className="flex justify-between text-[10px] font-mono mb-1">
+            <span className="text-muted">Opening Balance</span>
+            <span className="text-slate">{parsed.currency} {parsed.openingBalance.toLocaleString()}</span>
+          </div>
+          <div className="flex justify-between text-[10px] font-mono mb-1">
+            <span className="text-muted">Net Transactions ({parsed.transactions.length})</span>
+            <span className={reconCheck?.sum >= 0 ? 'text-sage' : 'text-rose'}>
+              {reconCheck?.sum >= 0 ? '+' : ''}{parsed.currency} {reconCheck?.sum.toLocaleString()}
+            </span>
+          </div>
+          <div className="flex justify-between text-[10px] font-mono mb-1 border-t border-black/8 pt-1">
+            <span className="text-muted">Expected Closing</span>
+            <span className="text-slate">{parsed.currency} {reconCheck?.expected.toLocaleString()}</span>
+          </div>
+          <div className="flex justify-between text-[10px] font-mono font-bold">
+            <span className="text-muted">Statement Closing</span>
+            <span className="text-slate">{parsed.currency} {parsed.closingBalance.toLocaleString()}</span>
+          </div>
+          <div className={`mt-2 text-center text-[10px] font-mono font-bold ${reconCheck?.ok ? 'text-sage' : 'text-rose'}`}>
+            {reconCheck?.ok ? '✓ Balanced' : `⚠ Off by ${parsed.currency} ${reconCheck?.diff.toFixed(2)}`}
+          </div>
+        </div>
+
+        {/* Account selector */}
+        <div className="mb-4">
+          <label className="block text-[11px] font-mono text-muted uppercase tracking-wide mb-1.5">
+            Import into Account
+          </label>
+          <select
+            value={accountId}
+            onChange={e => setAccountId(e.target.value)}
+            className={selectCls}
+          >
+            <option value="">— Select account —</option>
+            {activeAccounts.map(a => (
+              <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>
+            ))}
+          </select>
+          {parsed.accountNumber && ACCOUNT_NUMBER_MAP[parsed.accountNumber] && (
+            <p className="text-[9px] font-mono text-sage mt-1">✓ Auto-matched from account number</p>
+          )}
+        </div>
+
+        {/* Sample transactions */}
+        <div className="mb-4">
+          <p className="text-[10px] font-mono text-muted uppercase tracking-wide mb-2">
+            Sample Transactions (first 5)
+          </p>
+          <div className="bg-alabaster rounded-xl overflow-hidden border border-border">
+            {parsed.transactions.slice(0, 5).map((t, i) => (
+              <div key={i} className={`flex items-center gap-2 px-3 py-2 ${i < 4 ? 'border-b border-border/50' : ''}`}>
+                <span className="text-[9px] font-mono text-muted w-20 flex-shrink-0">{t.date}</span>
+                <span className="text-[10px] text-slate flex-1 truncate">{t.description}</span>
+                <span className={`text-[10px] font-mono font-semibold flex-shrink-0 ${t.amount >= 0 ? 'text-sage' : 'text-rose'}`}>
+                  {t.amount >= 0 ? '+' : ''}{t.amount.toLocaleString()}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <button onClick={() => setStep('upload')}
+            className="flex-1 py-3 border border-border rounded-2xl text-sm text-muted font-mono">
+            Back
+          </button>
+          <button
+            onClick={handleImport}
+            disabled={!accountId || importing}
+            className={`flex-1 py-3 rounded-2xl text-sm font-semibold text-white transition-all ${
+              accountId ? 'bg-navy active:scale-[0.98]' : 'bg-border cursor-not-allowed'
+            }`}
+          >
+            {importing ? 'Importing…' : `Import ${parsed.transactions.length} transactions`}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+
+  return (
+    <Sheet title="Import Statement" subtitle="ADCB (CSV) · ENBD (XLSX) · more banks coming" onClose={onClose} onSubmit={() => fileRef.current?.click()} submitLabel="Choose CSV File">
+      <div
+        onClick={() => fileRef.current?.click()}
+        className="border-2 border-dashed border-border rounded-2xl p-8 text-center cursor-pointer active:bg-alabaster transition-colors"
+      >
+        <p className="text-3xl mb-2">📂</p>
+        <p className="text-sm font-semibold text-slate">Select bank statement CSV</p>
+        <p className="text-[10px] font-mono text-muted mt-1">ADCB CSV · ENBD XLSX supported</p>
+      </div>
+      {error && (
+        <div className="bg-rose-lt border border-rose/20 rounded-xl px-3 py-2.5">
+          <p className="text-xs font-mono text-rose">{error}</p>
+        </div>
+      )}
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".csv,.xlsx,.xls"
+        onChange={handleFile}
+        className="hidden"
+      />
+    </Sheet>
+  )
+}
 
 export function FABModal({ context, onClose }) {
   const MODALS = {
     dashboard:    TransactionModal,
+    import:       StatementImportModal,
     balancesheet: ValuationModal,
     budgets:      BudgetModal,
     planning:     MilestoneModal,
