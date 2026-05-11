@@ -9,6 +9,7 @@ export function FAB() {
   const fabOpen     = useMinervaStore(s => s.fabOpen)
   const openFAB     = useMinervaStore(s => s.openFAB)
   const closeFAB    = useMinervaStore(s => s.closeFAB)
+  const fabContext   = useMinervaStore(s => s.fabContext)
 
   const TAB_CONTEXT = {
     dashboard:    { label: 'Log Transaction', color: 'bg-navy' },
@@ -70,7 +71,7 @@ export function FAB() {
       )}
 
       {/* Adaptive Modal */}
-      {fabOpen && <FABModal context={activeTab} onClose={closeFAB} />}
+      {fabOpen && <FABModal context={fabContext || activeTab} onClose={closeFAB} />}
     </>
   )
 }
