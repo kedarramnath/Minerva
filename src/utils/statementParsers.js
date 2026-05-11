@@ -52,14 +52,20 @@ export function parseADCB(csvText) {
 export function parseENBDCurrent(rows) {
   const r={accountNumber:null,currency:'AED',openingBalance:null,closingBalance:null,period:null,transactions:[],bankName:'ENBD',accountType:'current'}
   const h0=String(rows[0]?.[0]||''); const am=h0.match(/\d{6,}/);if(am)r.accountNumber=am[0];const cm=h0.match(/(AED|USD)/);if(cm)r.currency=cm[1]
+  // Row 0=account header, Row 1-2=empty, Row 3=column headers, Row 4+=data
+  // Columns: Date(0), Details(1), Description(2), Amount(3), Currency(4), Balance(5), Debit/Credit(6), Status(7)
   const dates=[]
-  for(let i=3;i<rows.length;i++){
-    const row=rows[i]; if(!row?.[1]) continue
-    const date=parseDate(String(row[1])); if(!date) continue
-    const amt=parseAmount(row[4]); if(amt===0) continue
-    const amount=String(row[7]||'').toLowerCase()==='credit'?amt:-amt
+  for(let i=4;i<rows.length;i++){
+    const row=rows[i]; if(!row?.[0]) continue
+    const date=parseDate(String(row[0])); if(!date) continue
+    const amt=parseAmount(row[3]); if(amt===0) continue
+    const dc=String(row[6]||'').toLowerCase()
+    const amount=dc==='credit'?amt:-amt
+    const desc=cleanStr(row[2]||row[1])
+    const cur=cleanStr(row[4])||r.currency
+    const bal=parseAmount(row[5])
     dates.push(date)
-    r.transactions.push({date,description:cleanStr(row[3]||row[2]),amount,currency:cleanStr(row[5])||r.currency,reference:'',balance:parseAmount(row[6])})
+    r.transactions.push({date,description:desc,amount,currency:cur,reference:'',balance:bal})
   }
   if(dates.length>0){const s=[...dates].sort();r.period=s[0]+' to '+s[s.length-1];r.closingBalance=r.transactions[0]?.balance||0}
   return r
@@ -67,14 +73,17 @@ export function parseENBDCurrent(rows) {
 export function parseENBDCreditCard(rows) {
   const r={accountNumber:null,currency:'AED',openingBalance:0,closingBalance:0,period:null,transactions:[],bankName:'ENBD',accountType:'credit_card'}
   const h0=String(rows[0]?.[0]||''); const cm=h0.match(/\d{6}[*]+\d{4}/);if(cm)r.accountNumber=cm[0]
+  // Row 0=card header, Row 1-2=empty, Row 3=column headers, Row 4+=data
+  // Columns: Date(0), Details(1), Amount(2), Currency(3), Debit/Credit(4), Status(5)
   const dates=[]
-  for(let i=3;i<rows.length;i++){
-    const row=rows[i]; if(!row?.[1]) continue
-    const date=parseDate(String(row[1])); if(!date) continue
-    const amt=parseAmount(row[3]); if(amt===0) continue
-    const amount=String(row[5]||'').toLowerCase()==='credit'?amt:-amt
+  for(let i=4;i<rows.length;i++){
+    const row=rows[i]; if(!row?.[0]) continue
+    const date=parseDate(String(row[0])); if(!date) continue
+    const amt=parseAmount(row[2]); if(amt===0) continue
+    const dc=String(row[4]||'').toLowerCase()
+    const amount=dc==='credit'?amt:-amt
     dates.push(date)
-    r.transactions.push({date,description:cleanStr(row[2]),amount,currency:cleanStr(row[4])||'AED',reference:''})
+    r.transactions.push({date,description:cleanStr(row[1]),amount,currency:cleanStr(row[3])||'AED',reference:''})
   }
   if(dates.length>0){const s=[...dates].sort();r.period=s[0]+' to '+s[s.length-1]}
   return r
@@ -148,10 +157,12 @@ export function parseWioCurrent(csvText) {
 // closing_balance,YYYY-MM,amount,AED
 export function parseWioCredit(csvText) {
   const r={accountNumber:'wio-cc-kedar',currency:'AED',openingBalance:null,closingBalance:null,period:null,transactions:[],bankName:'Wio',accountType:'credit_card'}
-  const lines=csvLines(csvText)
+  // File uses space as delimiter between records within lines — split by date pattern
+  const text = csvText.replace(/\r/g,'')
+  const records = text.split(/(?=\d{4}-\d{2}-\d{2},)|(?=opening_balance,)|(?=closing_balance,)/).map(s=>s.trim()).filter(Boolean)
   const dates=[]; let firstOpening=null, lastClosing=null
-  for(const line of lines){
-    const f=parseCSVLine(line); if(f.length<3) continue
+  for(const rec of records){
+    const f=parseCSVLine(rec); if(f.length<3) continue
     const first=f[0].trim()
     if(first==='opening_balance'){if(firstOpening===null)firstOpening=parseAmount(f[2]);continue}
     if(first==='closing_balance'){lastClosing=parseAmount(f[2]);continue}
