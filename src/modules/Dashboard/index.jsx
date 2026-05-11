@@ -359,6 +359,87 @@ function RecentTransactions() {
 }
 
 /** Reconciliation status strip — which accounts need attention */
+
+// ─── Import Status Panel ──────────────────────────────────────────────────────
+function ImportStatus() {
+  const accounts     = useMinervaStore(s => s.accounts)
+  const transactions = useMinervaStore(s => s.transactions)
+  const [expanded, setExpanded] = useState(false)
+
+  // Build per-account stats
+  const stats = accounts
+    .filter(a => a.active)
+    .map(a => {
+      const txns = transactions.filter(t => t.accountId === a.id && t.type !== 'reconciliation_adjustment')
+      const dates = txns.map(t => t.date).sort()
+      return {
+        id:       a.id,
+        name:     a.shortName,
+        currency: a.currency,
+        count:    txns.length,
+        from:     dates[0] ?? null,
+        to:       dates[dates.length - 1] ?? null,
+      }
+    })
+    .filter(s => s.count > 0)
+    .sort((a, b) => (b.to ?? '').localeCompare(a.to ?? ''))
+
+  const empty = stats.filter(s => s.count === 0)
+  const total = transactions.filter(t => t.type !== 'reconciliation_adjustment').length
+
+  return (
+    <div className="mx-5 mt-4 rounded-2xl bg-surface border border-border overflow-hidden">
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center justify-between px-4 py-3"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-sm">📊</span>
+          <span className="text-xs font-semibold text-navy">Transaction Status</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-mono text-muted">{total} transactions · {stats.length} accounts</span>
+          <span className="text-muted text-xs">{expanded ? '▲' : '▼'}</span>
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-border">
+          {stats.length === 0 ? (
+            <p className="text-xs font-mono text-muted text-center py-4">No transactions imported yet</p>
+          ) : (
+            <div>
+              {stats.map((s, i) => (
+                <div key={s.id}
+                  className={`flex items-center gap-3 px-4 py-2.5 ${i < stats.length - 1 ? 'border-b border-border/40' : ''}`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-medium text-navy truncate">{s.name}</span>
+                      <span className="text-[9px] font-mono text-muted">{s.currency}</span>
+                    </div>
+                    <p className="text-[9px] font-mono text-muted mt-0.5">
+                      {s.from?.slice(0,7)} → {s.to?.slice(0,7)}
+                    </p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-[10px] font-mono font-semibold text-slate">{s.count} txns</p>
+                    <p className="text-[9px] font-mono text-muted">last: {s.to}</p>
+                  </div>
+                  <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                    s.to >= new Date(Date.now() - 30*24*60*60*1000).toISOString().slice(0,10)
+                      ? 'bg-sage' : 'bg-amber'
+                  }`} />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ReconciliationStatus() {
   const ownerFilter       = useMinervaStore(s => s.ownerFilter)
   const _allAccounts      = useMinervaStore(s => s.accounts)
@@ -905,7 +986,8 @@ export function Dashboard({ onOpenReconcile }) {
           <SurplusProjection />
           <FCNRBanner />
           <ReconcileBar onOpenOpening={openReconcile} onOpenReconcile={openReconcile} />
-          <ReconciliationStatus />
+          <ImportStatus />
+        <ReconciliationStatus />
           <CashByCountry />
           <BurnRates />
           <RecentTransactions />
