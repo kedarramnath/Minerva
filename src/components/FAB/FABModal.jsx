@@ -14,6 +14,7 @@ function StatementImportModal({ onClose }) {
   const [accountId, setAccountId] = useState('')
   const [error, setError]       = useState(null)
   const [importing, setImporting] = useState(false)
+  const [importSummary, setImportSummary] = useState(null)
   const fileRef                 = useRef(null)
 
   const handleFile = async (e) => {
@@ -136,7 +137,8 @@ function StatementImportModal({ onClose }) {
         <p className="text-4xl mb-3">✅</p>
         <p className="text-base font-bold text-navy">Import Complete</p>
         <p className="text-xs font-mono text-muted mt-1">
-          {parsed.transactions.length} transactions imported
+          {importSummary?.added ?? parsed.transactions.length} imported
+          {importSummary?.skipped > 0 && ` · ${importSummary.skipped} duplicates skipped`}
         </p>
         {reconCheck && (
           <div className={`mt-4 px-4 py-2.5 rounded-xl text-xs font-mono ${reconCheck.ok ? 'bg-sage-lt text-sage' : 'bg-rose-lt text-rose'}`}>
