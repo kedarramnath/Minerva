@@ -34,40 +34,119 @@ const ROOT_FOLDER_ID  = '1NhDBqwjZN-DsrjhwWF25LdSnQGGET6jT'
 const FOLDER_MIME     = 'application/vnd.google-apps.folder'
 
 // ─── Folder → category + tags map ────────────────────────────────────────────
-// Key: folder name (lowercase, trimmed). Value: { category, tags }
 const FOLDER_META = {
-  // Identity subfolders
-  'uae':                         { category: 'identity',  tags: ['UAE'] },
-  'india':                       { category: 'identity',  tags: ['India'] },
-  'usa':                         { category: 'identity',  tags: ['USA'] },
-  'family_documents_aj':         { category: 'identity',  tags: ['Anisha', 'Family'] },
-  'family_documents_kr':         { category: 'identity',  tags: ['Kedar', 'Family'] },
-  'education':                   { category: 'identity',  tags: ['Education', 'Anisha'] },
-  'main identity docs - minerva':{ category: 'identity',  tags: ['Kedar', 'Anisha'] },
+  // ── Identity — UAE ─────────────────────────────────────────────────────────
+  'uae':                          { category: 'identity',  tags: ['UAE', '2026'] },
+  'india':                        { category: 'identity',  tags: ['India'] },
+  'usa':                          { category: 'identity',  tags: ['USA'] },
 
-  // Corporate subfolders
-  'ikarma properties llc':       { category: 'corporate', tags: ['Ikarma', 'USA', 'Houston'] },
-  'ikarma ventures pte ltd':     { category: 'corporate', tags: ['Ikarma', 'Singapore'] },
-  'infinity holdings llc':       { category: 'corporate', tags: ['Infinity', 'USA'] },
-  'the kyck limited':            { category: 'corporate', tags: ['KYCK', 'UAE'] },
-  'vista trading fzco':          { category: 'corporate', tags: ['Vista', 'UAE'] },
+  // ── Identity — Family KR (Kedar's parents: Ramnath + Mala) ────────────────
+  'family_documents_kr':          { category: 'identity',  tags: ['Family', 'Kedar', 'Amma', 'Appa', 'Ramnath', 'Mala', 'Kedar\'s Parents', 'India', 'Identity'] },
 
-  // Real estate subfolders
-  'dubai':                       { category: 'property',  tags: ['Dubai', 'UAE'] },
-  '1707 windy meadow':           { category: 'property',  tags: ['Houston', 'SFH', 'USA'] },
-  '6626 supply row':             { category: 'property',  tags: ['Houston', 'Warehouse', 'USA'] },
+  // ── Identity — Family AJ (Anisha's family: Anu Gurung + Rohan Joshi) ──────
+  'family_documents_aj':          { category: 'identity',  tags: ['Family', 'Anisha', 'Anu', 'Gurung', 'Rohan', 'Joshi', 'Anisha\'s Family', 'India', 'Identity'] },
 
-  // Top-level fallbacks
-  'identity':                    { category: 'identity',  tags: [] },
-  'corporate':                   { category: 'corporate', tags: [] },
-  'real estate':                 { category: 'property',  tags: [] },
-  'documents':                   { category: 'other',     tags: [] },
-  'statements':                  { category: 'statement', tags: [] },
+  // ── Identity — Education ───────────────────────────────────────────────────
+  'education':                    { category: 'identity',  tags: ['Education', 'Anisha', 'Degree'] },
+
+  // ── Identity — Main docs (Kedar, Anisha, Yuvi) ────────────────────────────
+  'main identity docs - minerva': { category: 'identity',  tags: ['Kedar', 'Anisha', 'Yuvaan', 'Identity', 'UAE'] },
+
+  // ── Corporate ──────────────────────────────────────────────────────────────
+  'ikarma properties llc':        { category: 'corporate', tags: ['Ikarma', 'USA', 'Houston', 'Warehouse', 'Corporate'] },
+  'ikarma ventures pte ltd':      { category: 'corporate', tags: ['Ikarma', 'Singapore', 'Corporate'] },
+  'infinity holdings llc':        { category: 'corporate', tags: ['Infinity', 'USA', 'Corporate'] },
+  'the kyck limited':             { category: 'corporate', tags: ['KYCK', 'UAE', 'Corporate'] },
+  'vista trading fzco':           { category: 'corporate', tags: ['Vista', 'UAE', 'Corporate'] },
+
+  // ── Real Estate ────────────────────────────────────────────────────────────
+  'dubai':                        { category: 'property',  tags: ['Dubai', 'UAE', 'Villa', 'Property'] },
+  '1707 windy meadow':            { category: 'property',  tags: ['Houston', 'SFH', 'USA', 'Property', 'Rental'] },
+  '6626 supply row':              { category: 'property',  tags: ['Houston', 'Warehouse', 'USA', 'Property', 'Ikarma'] },
+
+  // ── Top-level fallbacks ────────────────────────────────────────────────────
+  'identity':                     { category: 'identity',  tags: ['Identity'] },
+  'corporate':                    { category: 'corporate', tags: ['Corporate'] },
+  'real estate':                  { category: 'property',  tags: ['Property'] },
+  'documents':                    { category: 'other',     tags: [] },
+  'statements':                   { category: 'statement', tags: ['2026'] },
+}
+
+// ─── Document-level smart tagger ─────────────────────────────────────────────
+// Adds additional tags based on the document filename itself
+function smartTagsFromTitle(title) {
+  const t = (title ?? '').toLowerCase()
+  const tags = []
+
+  // People — Kedar household
+  if (t.includes('kedar') || t.includes('ramnath'))          tags.push('Kedar')
+  if (t.includes('anisha') || t.includes('joshi'))           tags.push('Anisha')
+  if (t.includes('yuvi') || t.includes('yuvaan'))            tags.push('Yuvaan')
+
+  // People — Extended KR family
+  if (t.includes('ramnath') || t.includes('appa') || t.includes('mala') || t.includes('amma'))
+                                                              tags.push('Amma', 'Appa', 'Ramnath', 'Mala')
+
+  // People — Extended AJ family
+  if (t.includes('anu') || t.includes('gurung'))             tags.push('Anu', 'Gurung')
+  if (t.includes('rohan'))                                   tags.push('Rohan', 'Joshi')
+
+  // Document types
+  if (t.includes('passport'))                                tags.push('Passport', 'Identity')
+  if (t.includes('emirates id') || t.includes('eid'))       tags.push('Emirates ID', 'Identity', 'UAE')
+  if (t.includes('visa'))                                    tags.push('Visa', 'Identity')
+  if (t.includes('aadhaar') || t.includes('aadhar'))        tags.push('Aadhaar', 'Identity', 'India')
+  if (t.includes('pan'))                                     tags.push('PAN', 'Identity', 'India')
+  if (t.includes('birth cert'))                              tags.push('Birth Certificate', 'Identity')
+  if (t.includes('marriage'))                                tags.push('Marriage Certificate', 'Identity')
+  if (t.includes('degree') || t.includes('diploma'))        tags.push('Education', 'Degree')
+
+  // Banks / institutions
+  if (t.includes('adcb'))                                    tags.push('ADCB', 'UAE', 'Banking')
+  if (t.includes('hsbc'))                                    tags.push('HSBC', 'Banking')
+  if (t.includes('wio'))                                     tags.push('Wio', 'UAE', 'Banking')
+  if (t.includes('enbd') || t.includes('emirates nbd'))     tags.push('ENBD', 'UAE', 'Banking')
+  if (t.includes('hdfc'))                                    tags.push('HDFC', 'India', 'Banking')
+  if (t.includes('axis'))                                    tags.push('Axis Bank', 'India', 'Banking')
+  if (t.includes('sbi'))                                     tags.push('SBI', 'India', 'Banking')
+  if (t.includes('chase'))                                   tags.push('Chase', 'USA', 'Banking')
+  if (t.includes('amex') || t.includes('american express')) tags.push('Amex', 'USA', 'Banking')
+  if (t.includes('amazon'))                                  tags.push('Amazon', 'USA', 'Banking')
+  if (t.includes('m&t') || t.includes('m and t'))           tags.push('M&T Bank', 'USA', 'Banking')
+  if (t.includes('dbs'))                                     tags.push('DBS', 'Singapore', 'Banking')
+  if (t.includes('ibkr') || t.includes('interactive'))      tags.push('IBKR', 'Investment', 'USA')
+
+  // Investments
+  if (t.includes('fcnr'))                                    tags.push('FCNR', 'Investment', 'India')
+  if (t.includes('sblc') || t.includes('lien'))             tags.push('SBLC', 'Legal', 'FCNR')
+  if (t.includes('dews'))                                    tags.push('DEWS', 'Investment', 'UAE')
+  if (t.includes('realty mogul') || t.includes('reit'))     tags.push('Realty Mogul', 'Investment', 'USA')
+  if (t.includes('portfolio'))                               tags.push('Investment', 'Portfolio')
+
+  // Property
+  if (t.includes('villa') || t.includes('the villa'))       tags.push('Dubai Villa', 'UAE', 'Property')
+  if (t.includes('mortgage'))                                tags.push('Mortgage', 'Property')
+  if (t.includes('windy meadow'))                            tags.push('Houston SFH', 'USA', 'Property')
+  if (t.includes('supply row'))                              tags.push('Houston Warehouse', 'USA', 'Property')
+  if (t.includes('matunga') || t.includes('corner of five'))tags.push('Mumbai', 'India', 'Property')
+  if (t.includes('waters edge') || t.includes('pimple'))    tags.push('Pune', 'India', 'Property')
+  if (t.includes('darjeeling'))                              tags.push('Darjeeling', 'India', 'Property')
+  if (t.includes('bhor') || t.includes('rajghar'))          tags.push('Bhor', 'India', 'Property')
+
+  // Year tags from filename
+  const yearMatch = title?.match(/20\d{2}/)
+  if (yearMatch) tags.push(yearMatch[0])
+
+  // Month tags
+  const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']
+  months.forEach(m => { if (t.includes(m)) tags.push(m.charAt(0).toUpperCase() + m.slice(1)) })
+
+  return [...new Set(tags)]
 }
 
 function getFolderMeta(folderName) {
   const key = folderName.toLowerCase().trim()
-  return FOLDER_META[key] ?? { category: 'other', tags: [folderName] }
+  return FOLDER_META[key] ?? { category: 'other', tags: [] }
 }
 
 // ─── Drive API helpers ────────────────────────────────────────────────────────
