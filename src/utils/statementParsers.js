@@ -57,7 +57,14 @@ export function parseENBDCurrent(rows) {
   const dates=[]
   for(let i=4;i<rows.length;i++){
     const row=rows[i]; if(!row?.[0]) continue
-    const date=parseDate(String(row[0])); if(!date) continue
+    // Handle both 'May 11, 2026' (full) and 'Apr 28, 2026' (abbreviated)
+    const rawDate = String(row[0]||'').trim()
+    let date = null
+    if (rawDate) {
+      const d = new Date(rawDate)
+      if (!isNaN(d)) date = d.toISOString().slice(0,10)
+    }
+    if (!date) continue
     const amt=parseAmount(row[3]); if(amt===0) continue
     const dc=String(row[6]||'').toLowerCase()
     const amount=dc==='credit'?amt:-amt
@@ -78,7 +85,14 @@ export function parseENBDCreditCard(rows) {
   const dates=[]
   for(let i=4;i<rows.length;i++){
     const row=rows[i]; if(!row?.[0]) continue
-    const date=parseDate(String(row[0])); if(!date) continue
+    // Handle both 'May 11, 2026' (full) and 'Apr 28, 2026' (abbreviated)
+    const rawDate = String(row[0]||'').trim()
+    let date = null
+    if (rawDate) {
+      const d = new Date(rawDate)
+      if (!isNaN(d)) date = d.toISOString().slice(0,10)
+    }
+    if (!date) continue
     const amt=parseAmount(row[2]); if(amt===0) continue
     const dc=String(row[4]||'').toLowerCase()
     const amount=dc==='credit'?amt:-amt
@@ -97,11 +111,16 @@ export function parseHSBCCredit(csvText) {
   const r={accountNumber:'HSBC-CC',currency:'AED',openingBalance:null,closingBalance:null,period:null,transactions:[],bankName:'HSBC',accountType:'credit_card'}
   const dates=[]
   for(const line of csvLines(csvText)){
-    const f=parseCSVLine(line); if(f.length<3) continue
+    const f=parseCSVLine(line); if(f.length<2) continue
     const date=parseDate(f[0]); if(!date) continue
-    const amount=parseAmount(f[f.length-1]); if(amount===0) continue
+    // Last field is amount (can be negative like -36.00 or positive like 174.44)
+    const amtStr = f[f.length-1]
+    const amount = parseAmount(amtStr)
+    if(amount===0) continue
+    // Everything between date and amount is description
+    const desc = f.length > 2 ? f.slice(1,f.length-1).join(' ').replace(/\s+/g,' ') : ''
     dates.push(date)
-    r.transactions.push({date,description:cleanStr(f.slice(1,f.length-1).join(' ').replace(/\s+/g,' ')),amount,currency:'AED',reference:''})
+    r.transactions.push({date,description:cleanStr(desc),amount,currency:'AED',reference:''})
   }
   if(dates.length>0){const s=[...dates].sort();r.period=s[0]+' to '+s[s.length-1]}
   return r
@@ -112,17 +131,28 @@ export function parseHSBCCurrent(csvText) {
   for(const line of csvLines(csvText)){
     const f=parseCSVLine(line); if(f.length<3) continue
     const date=parseDate(f[0]); if(!date) continue
-    const amount=parseAmount(f[f.length-2]); const balance=parseAmount(f[f.length-1]); if(amount===0) continue
+    // Field layout: date, description..., amount, balance
+    // Amount is second-to-last, balance is last
+    const balance = parseAmount(f[f.length-1])
+    const amount  = parseAmount(f[f.length-2])
+    if(amount===0 && balance===0) continue
+    const desc = f.slice(1, f.length-2).join(' ').replace(/\s+/g,' ')
     dates.push(date)
-    r.transactions.push({date,description:cleanStr(f.slice(1,f.length-2).join(' ').replace(/\s+/g,' ')),amount,currency:'AED',reference:'',balance})
+    r.transactions.push({date,description:cleanStr(desc),amount,currency:'AED',reference:'',balance})
   }
   if(dates.length>0){const s=[...dates].sort();r.period=s[0]+' to '+s[s.length-1];r.closingBalance=r.transactions[0]?.balance||null}
   return r
 }
 export function parseHSBC(csvText) {
-  const first=parseCSVLine(csvLines(csvText)[0]||'')
-  const last=first[first.length-1]
-  return (first.length>=4&&!parseDate(last)&&parseAmount(last)!==0)?parseHSBCCurrent(csvText):parseHSBCCredit(csvText)
+  // HSBC Current has 4 fields: date, description, amount, balance
+  // HSBC Credit has 3 fields: date, description, amount (no balance column)
+  // Use parseCSVLine to handle quoted fields correctly
+  const first = parseCSVLine(csvLines(csvText)[0] || '')
+  // If 4+ fields and last field looks like a running balance (positive number)
+  const last = first[first.length - 1]
+  const lastNum = parseAmount(last)
+  const isCurrent = first.length >= 4 && lastNum > 0 && !parseDate(last)
+  return isCurrent ? parseHSBCCurrent(csvText) : parseHSBCCredit(csvText)
 }
 
 // ── Wio Current CSV ───────────────────────────────────────────────────────────
@@ -134,6 +164,7 @@ export function parseWioCurrent(csvText) {
   const iAcc=col('account number'),iCur=col('account currency'),iDate=col('date')
   const iDesc=col('description'),iAmt=col('amount'),iBal=col('balance')
   const iNotes=col('notes'),iRef=col('ref. number')
+  // Wio CSV has 14 columns, all properly quoted — parseCSVLine handles this correctly
   const dates=[]
   for(let i=1;i<lines.length;i++){
     const f=parseCSVLine(lines[i])
@@ -144,7 +175,9 @@ export function parseWioCurrent(csvText) {
     const balance=iBal>=0?parseAmount(f[iBal]):0
     const notes=iNotes>=0?cleanStr(f[iNotes]):''
     dates.push(date)
-    r.transactions.push({date,description:cleanStr(iDesc>=0?f[iDesc]:''+(notes?' - '+notes:'')),amount,currency:r.currency,reference:iRef>=0?cleanStr(f[iRef]):'',balance})
+    const baseDesc = iDesc>=0 ? cleanStr(f[iDesc]) : ''
+    const fullDesc  = baseDesc + (notes && notes !== 'N/A' ? ' — ' + notes : '')
+    r.transactions.push({date,description:fullDesc,amount,currency:r.currency,reference:iRef>=0?cleanStr(f[iRef]):'',balance})
   }
   if(dates.length>0){const s=[...dates].sort();r.period=s[0]+' to '+s[s.length-1];r.closingBalance=r.transactions[r.transactions.length-1]?.balance||null}
   return r
@@ -201,26 +234,27 @@ export const ACCOUNT_NUMBER_MAP={
 }
 
 export function detectBank(text, filename) {
-  const u = String(text).toUpperCase().slice(0, 500)
   const fn = (filename || '').toUpperCase()
 
-  // Filename-based detection (most reliable for HSBC which has no header)
-  if (fn.includes('HSBC')) return 'HSBC'
-  if (fn.includes('WIO')) return 'Wio'
-  if (fn.includes('ADCB')) return 'ADCB'
-  if (fn.includes('NBD') || fn.includes('ENBD') || fn.includes('TRANSACTION')) return 'ENBD'
+  // Filename always wins — most reliable
+  if (fn.includes('HSBC'))                                    return 'HSBC'
+  if (fn.includes('WIO'))                                     return 'Wio'
+  if (fn.includes('ADCB'))                                    return 'ADCB'
+  if (fn.includes('NBD') || fn.includes('ENBD'))              return 'ENBD'
+  if (fn.includes('TRANSACTION') || fn.includes('TRANS'))     return 'ENBD'
 
-  // Content-based detection
-  if (u.includes('ADCB') || u.includes('ABU DHABI COMMERCIAL') || u.includes('13091504') || u.includes('POSTING DATE')) return 'ADCB'
+  // Content-based — only check first 200 chars to avoid false matches in descriptions
+  const u = String(text).toUpperCase().slice(0, 200)
+  if (u.includes('ADCB') || u.includes('13091504') || u.includes('POSTING DATE')) return 'ADCB'
   if (u.includes('EMIRATES NBD') || u.includes('101XXXXXXXX') || u.includes('432114')) return 'ENBD'
-  if (u.includes('HSBC')) return 'HSBC'
-  if (u.includes('WIO') || u.includes('6692353112') || u.includes('AE090860')) return 'Wio'
+  if (u.includes('HSBC'))                                     return 'HSBC'
+  // Wio: only match on account number or IBAN, not on "Wio Bank" in descriptions
+  if (u.includes('6692353112') || u.includes('AE090860') || u.includes('ACCOUNT NAME,ACCOUNT TYPE')) return 'Wio'
 
-  // Pattern-based: DD/MM/YYYY with signed amount and no header = HSBC
-  if (/^\d{2}\/\d{2}\/\d{4},/.test(text.trim())) return 'HSBC'
-
-  // opening_balance pattern = Wio Credit
-  if (text.trim().startsWith('opening_balance,')) return 'Wio'
+  // Pattern: starts with opening_balance = Wio Credit
+  if (text.trim().startsWith('opening_balance,'))             return 'Wio'
+  // Pattern: DD/MM/YYYY, description, amount = HSBC (no header)
+  if (/^\d{2}\/\d{2}\/\d{4},/.test(text.trim()))          return 'HSBC'
 
   return null
 }

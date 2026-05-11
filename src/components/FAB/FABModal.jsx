@@ -58,14 +58,22 @@ function StatementImportModal({ onClose }) {
       const reader = new FileReader()
       reader.onload = (ev) => {
         const text = ev.target.result
-        const bank = detectBank(text)
+        const bank = detectBank(text, file.name)
         if (!bank) {
-          setError('Bank format not recognised. Supported: ADCB (CSV), ENBD (XLSX).')
+          setError('Bank not recognised. Rename file to include: HSBC, WIO, ADCB, NBD')
           return
         }
-        const result = parseStatement(text, bank)
+        const result = parseStatement(text, bank, file.name)
         if (result.error) { setError(result.error); return }
-        const matchedId = ACCOUNT_NUMBER_MAP[result.accountNumber] ?? ''
+
+        // Auto-match account
+        let matchedId = ACCOUNT_NUMBER_MAP[result.accountNumber] ?? ''
+        if (!matchedId && result.bankName === 'HSBC') {
+          matchedId = result.accountType === 'credit_card' ? 'hsbc-cc-kedar' : 'hsbc-current-kedar'
+        }
+        if (!matchedId && result.bankName === 'Wio') {
+          matchedId = result.accountType === 'credit_card' ? 'wio-cc-kedar' : 'wio-current-kedar'
+        }
         setAccountId(matchedId)
         setParsed(result)
         setError(null)
