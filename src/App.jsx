@@ -23,32 +23,27 @@ const SCREENS = {
 
 // ─── Sync status indicator ────────────────────────────────────────────────────
 
-function SyncBadge({ status, lastSyncedAt, onSignIn, onSyncVault }) {
-  const label = {
-    idle:    '☁️ Synced',
-    syncing: '↻ Syncing…',
-    error:   '⚠️ Sync error',
-    offline: '○ Offline',
-  }[status] ?? '○ Not connected'
+function SyncBadge({ status, isSignedIn, onSignIn, onSignOut, onSyncVault }) {
+  const label = isSignedIn
+    ? { idle: '☁️ Synced', syncing: '↻ Syncing…', error: '⚠️ Retry' }[status] ?? '☁️ Connected'
+    : '🔗 Connect Drive'
 
-  const color = {
-    idle:    'text-sage/80',
-    syncing: 'text-blue/80',
-    error:   'text-rose/80',
-    offline: 'text-muted',
-  }[status] ?? 'text-muted'
+  const color = isSignedIn
+    ? { idle: 'text-sage/80', syncing: 'text-blue/80', error: 'text-rose/80' }[status] ?? 'text-sage/80'
+    : 'text-blue/80'
 
   return (
     <div className="fixed top-4 right-4 z-20 flex items-center gap-1.5">
+      {isSignedIn && (
+        <button
+          onClick={onSyncVault}
+          className="text-[9px] font-mono px-2 py-1 bg-surface/80 backdrop-blur rounded-lg border border-border shadow-sm text-teal/80 active:scale-95 transition-all"
+        >
+          🗂 Vault
+        </button>
+      )}
       <button
-        onClick={onSyncVault}
-        className="text-[9px] font-mono px-2 py-1 bg-surface/80 backdrop-blur rounded-lg border border-border shadow-sm text-teal/80 active:scale-95 transition-all"
-        title="Sync Drive Documents to Vault"
-      >
-        🗂 Vault
-      </button>
-      <button
-        onClick={onSignIn}
+        onClick={isSignedIn ? onSignOut : onSignIn}
         className={`text-[9px] font-mono px-2 py-1 bg-surface/80 backdrop-blur rounded-lg border border-border shadow-sm ${color} active:scale-95 transition-all`}
       >
         {label}
@@ -77,8 +72,8 @@ export default function App() {
   const [hawkTarget, setHawkTarget] = useState(null)
 
   // Drive sync — initialises on mount, subscribes to mutations
-  const { signIn }        = useDriveSync()
-  const { syncDocuments } = useDriveFolderSync()
+  const { signIn, signOut, isSignedIn } = useDriveSync()
+  const { syncDocuments }              = useDriveFolderSync()
 
   const noneAnchored    = accounts.every(a => !a.reconciledAt)
   const showSetupBanner = noneAnchored && modal === null
@@ -106,8 +101,9 @@ export default function App() {
       {/* Sync badge — top right, unobtrusive */}
       <SyncBadge
         status={syncStatus}
-        lastSyncedAt={lastSyncedAt}
+        isSignedIn={isSignedIn}
         onSignIn={signIn}
+        onSignOut={signOut}
         onSyncVault={syncDocuments}
       />
 

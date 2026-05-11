@@ -1,287 +1,213 @@
 // src/hooks/useDriveSync.js
-// Google Drive sync — reads/writes minerva_data.json to user's Drive.
-//
-// SETUP (one-time, 10 minutes):
-//   1. Go to https://console.cloud.google.com
-//   2. Create project "Minerva Financial"
-//   3. Enable "Google Drive API"
-//   4. OAuth consent screen → External → add your Gmail as test user
-//   5. Credentials → Create OAuth Client ID → Web Application
-//      Authorised JS origins: http://localhost:5173, https://your-github-pages-url
-//   6. Copy Client ID → paste into VITE_GOOGLE_CLIENT_ID in .env.local
-//
-// The app uses scope 'drive.file' — it can ONLY see files it creates itself.
-// It cannot read any other Drive files. Minimal permission footprint.
-//
-// ARCHITECTURE:
-//   - On mount: attempt silent token refresh (gapi.auth2.getAuthInstance)
-//   - If token valid: load minerva_data.json → hydrate store
-//   - On every store mutation (debounced 3s): write full state to Drive
-//   - Conflict: last-write-wins via updatedAt timestamp
-//   - Offline: writes queue in localStorage, flush on reconnect
+// Google Drive sync using OAuth2 implicit flow (no popup, no gapi)
+// Works reliably on GitHub Pages
 
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { useMinervaStore }                from '../state/store.js'
 
-const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? '518898336060-0o47asbhrmrdcegdou3s2k70bq1klvtn.apps.googleusercontent.com'
-const SCOPE     = 'https://www.googleapis.com/auth/drive.file'
-const FILE_NAME = 'minerva_data.json'
-const MIME      = 'application/json'
+const CLIENT_ID   = '518898336060-0o47asbhrmrdcegdou3s2k70bq1klvtn.apps.googleusercontent.com'
+const SCOPE       = 'https://www.googleapis.com/auth/drive.file'
+const FILE_NAME   = 'minerva_data.json'
 const DEBOUNCE_MS = 3000
+const REDIRECT_URI = window.location.origin + window.location.pathname
 
-// ─── Google API loader ────────────────────────────────────────────────────────
+// ─── Token management ─────────────────────────────────────────────────────────
 
-let gapiLoaded    = false
-let gapiLoading   = false
-let gapiCallbacks = []
-
-function loadGapi() {
-  return new Promise((resolve, reject) => {
-    if (gapiLoaded) { resolve(); return }
-    gapiCallbacks.push({ resolve, reject })
-    if (gapiLoading) return
-    gapiLoading = true
-
-    const script = document.createElement('script')
-    script.src = 'https://apis.google.com/js/api.js'
-    script.onload = () => {
-      window.gapi.load('client:auth2', async () => {
-        try {
-          await window.gapi.client.init({
-            clientId: CLIENT_ID,
-            scope:    SCOPE,
-            discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
-          })
-          gapiLoaded = true
-          gapiCallbacks.forEach(cb => cb.resolve())
-          gapiCallbacks = []
-        } catch (e) {
-          gapiCallbacks.forEach(cb => cb.reject(e))
-          gapiCallbacks = []
-        }
-      })
+function getStoredToken() {
+  try {
+    const t = localStorage.getItem('minerva_drive_token')
+    if (!t) return null
+    const parsed = JSON.parse(t)
+    // Check expiry
+    if (Date.now() > parsed.expires_at) {
+      localStorage.removeItem('minerva_drive_token')
+      return null
     }
-    script.onerror = (e) => {
-      gapiCallbacks.forEach(cb => cb.reject(e))
-      gapiCallbacks = []
-    }
-    document.head.appendChild(script)
-  })
+    return parsed.access_token
+  } catch { return null }
 }
 
-// ─── Drive file operations ────────────────────────────────────────────────────
-
-async function findFile() {
-  const res = await window.gapi.client.drive.files.list({
-    q:      `name='${FILE_NAME}' and trashed=false`,
-    fields: 'files(id,name,modifiedTime)',
-    spaces: 'drive',
-  })
-  return res.result.files?.[0] ?? null
+function storeToken(accessToken, expiresIn) {
+  localStorage.setItem('minerva_drive_token', JSON.stringify({
+    access_token: accessToken,
+    expires_at:   Date.now() + (expiresIn * 1000) - 60000, // 1 min buffer
+  }))
 }
 
-async function readFile(fileId) {
-  const res = await window.gapi.client.drive.files.get({
-    fileId,
-    alt: 'media',
-  })
-  return typeof res.body === 'string' ? JSON.parse(res.body) : res.result
+function clearToken() {
+  localStorage.removeItem('minerva_drive_token')
 }
 
-async function writeFile(fileId, data) {
+// Parse token from URL hash after OAuth redirect
+function parseTokenFromHash() {
+  const hash = window.location.hash.substring(1)
+  if (!hash) return null
+  const params = new URLSearchParams(hash)
+  const token  = params.get('access_token')
+  const expiry = params.get('expires_in')
+  if (!token) return null
+  storeToken(token, parseInt(expiry) || 3600)
+  // Clean up URL
+  window.history.replaceState({}, document.title, window.location.pathname)
+  return token
+}
+
+// ─── Drive API ────────────────────────────────────────────────────────────────
+
+async function driveGet(path, token) {
+  const res = await fetch(`https://www.googleapis.com/drive/v3/${path}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (res.status === 401) { clearToken(); return null }
+  if (!res.ok) throw new Error(`Drive API ${res.status}`)
+  return res.json()
+}
+
+async function findFile(token) {
+  const q   = encodeURIComponent(`name='${FILE_NAME}' and trashed=false`)
+  const data = await driveGet(`files?q=${q}&fields=files(id,modifiedTime)`, token)
+  return data?.files?.[0] ?? null
+}
+
+async function readFile(fileId, token) {
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (!res.ok) return null
+  return res.json()
+}
+
+async function writeFile(fileId, data, token) {
   const body = JSON.stringify({ ...data, syncedAt: new Date().toISOString() })
-
   if (fileId) {
-    // Update existing file
-    await window.gapi.client.request({
-      path:   `/upload/drive/v3/files/${fileId}`,
-      method: 'PATCH',
-      params: { uploadType: 'media' },
-      headers: { 'Content-Type': MIME },
+    await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
+      method:  'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body,
     })
   } else {
-    // Create new file
-    const boundary = '-------minerva_boundary'
-    const delimiter = `\r\n--${boundary}\r\n`
-    const closeDelim = `\r\n--${boundary}--`
-    const metadata = JSON.stringify({ name: FILE_NAME, mimeType: MIME })
-    const multipart =
-      delimiter + 'Content-Type: application/json\r\n\r\n' + metadata +
-      delimiter + `Content-Type: ${MIME}\r\n\r\n` + body +
-      closeDelim
-
-    const res = await window.gapi.client.request({
-      path:   '/upload/drive/v3/files',
-      method: 'POST',
-      params: { uploadType: 'multipart' },
-      headers: { 'Content-Type': `multipart/related; boundary="${boundary}"` },
-      body:   multipart,
+    const boundary = 'minerva_boundary'
+    const meta = JSON.stringify({ name: FILE_NAME, mimeType: 'application/json' })
+    const multipart = `--${boundary}\r\nContent-Type: application/json\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${boundary}--`
+    const res = await fetch(`https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`, {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+      body:    multipart,
     })
-    return res.result.id
-  }
-}
-
-// ─── STATE EXTRACTOR ─────────────────────────────────────────────────────────
-// What we persist to Drive — same as Zustand partialize
-
-function extractPersistableState(state) {
-  return {
-    accounts:          state.accounts,
-    assets:            state.assets,
-    liabilities:       state.liabilities,
-    transactions:      state.transactions,
-    reconciliationLog: state.reconciliationLog,
-    budgets:           state.budgets,
-    targets:           state.targets,
-    documents:         state.documents,
-    fx:                state.fx,
-    surplusConfig:     state.surplusConfig,
-    activeCurrency:    state.activeCurrency,
-    liveLiquidity:     state.liveLiquidity,
-    netWorth:          state.netWorth,
-    updatedAt:         new Date().toISOString(),
+    return (await res.json()).id
   }
 }
 
 // ─── HOOK ─────────────────────────────────────────────────────────────────────
 
 export function useDriveSync() {
-  const setSyncStatus  = useMinervaStore(s => s.setSyncStatus)
-  const setLastSynced  = useMinervaStore(s => s.setLastSynced)
-  const syncStatus     = useMinervaStore(s => s.syncStatus)
+  const setSyncStatus = useMinervaStore(s => s.setSyncStatus)
+  const setLastSynced = useMinervaStore(s => s.setLastSynced)
+  const syncStatus    = useMinervaStore(s => s.syncStatus)
 
-  const fileIdRef      = useRef(null)  // cached Drive file ID
-  const debounceRef    = useRef(null)
-  const pendingWriteRef = useRef(false)
-  const isSignedInRef  = useRef(false)
+  const fileIdRef     = useRef(null)
+  const tokenRef      = useRef(getStoredToken())
+  const debounceRef   = useRef(null)
 
-  // ── Sign in ──────────────────────────────────────────────────────────────
-  const signIn = useCallback(async () => {
-    try {
-      await loadGapi()
-      const auth = window.gapi.auth2.getAuthInstance()
-      // Always show account picker so user can confirm
-      await auth.signIn({ prompt: 'select_account' })
-      isSignedInRef.current = true
-      console.log('[Minerva] Signed in to Google Drive')
-      return true
-    } catch (e) {
-      console.error('[Minerva] Sign-in failed:', e)
-      return false
-    }
+  // ── Sign in via OAuth redirect ─────────────────────────────────────────────
+  const signIn = useCallback(() => {
+    const params = new URLSearchParams({
+      client_id:     CLIENT_ID,
+      redirect_uri:  REDIRECT_URI,
+      response_type: 'token',
+      scope:         SCOPE,
+      prompt:        'select_account',
+    })
+    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`
   }, [])
 
-  // ── Sign out ─────────────────────────────────────────────────────────────
-  const signOut = useCallback(async () => {
-    try {
-      const auth = window.gapi.auth2.getAuthInstance()
-      await auth.signOut()
-      isSignedInRef.current = false
-      fileIdRef.current = null
-    } catch (e) {
-      console.error('[Minerva] Sign-out failed:', e)
-    }
-  }, [])
+  const signOut = useCallback(() => {
+    clearToken()
+    tokenRef.current = null
+    fileIdRef.current = null
+    setSyncStatus?.('idle')
+  }, [setSyncStatus])
 
-  // ── Load from Drive ───────────────────────────────────────────────────────
-  const loadFromDrive = useCallback(async () => {
-    if (!isSignedInRef.current) return false
+  // ── Load from Drive ────────────────────────────────────────────────────────
+  const loadFromDrive = useCallback(async (token) => {
     try {
       setSyncStatus?.('syncing')
-      const file = await findFile()
-      if (!file) {
-        console.log('[Minerva] No minerva_data.json found in Drive — first run')
-        setSyncStatus?.('idle')
-        return false
-      }
+      const file = await findFile(token)
+      if (!file) { setSyncStatus?.('idle'); return }
       fileIdRef.current = file.id
-      const data = await readFile(file.id)
-
-      // Hydrate store with Drive data
-      useMinervaStore.setState(state => ({
-        ...state,
-        accounts:          data.accounts          ?? state.accounts,
-        assets:            data.assets            ?? state.assets,
-        liabilities:       data.liabilities       ?? state.liabilities,
-        transactions:      data.transactions      ?? state.transactions,
-        reconciliationLog: data.reconciliationLog ?? state.reconciliationLog,
-        budgets:           data.budgets           ?? state.budgets,
-        targets:           data.targets           ?? state.targets,
-        documents:         data.documents         ?? state.documents,
-        fx:                data.fx                ?? state.fx,
-        surplusConfig:     data.surplusConfig     ?? state.surplusConfig,
-        activeCurrency:    data.activeCurrency    ?? state.activeCurrency,
+      const data = await readFile(file.id, token)
+      if (!data) { setSyncStatus?.('idle'); return }
+      useMinervaStore.setState(s => ({
+        ...s,
+        accounts:          data.accounts          ?? s.accounts,
+        assets:            data.assets            ?? s.assets,
+        liabilities:       data.liabilities       ?? s.liabilities,
+        transactions:      data.transactions      ?? s.transactions,
+        reconciliationLog: data.reconciliationLog ?? s.reconciliationLog,
+        budgets:           data.budgets           ?? s.budgets,
+        targets:           data.targets           ?? s.targets,
+        documents:         data.documents         ?? s.documents,
+        fx:                data.fx                ?? s.fx,
+        surplusConfig:     data.surplusConfig      ?? s.surplusConfig,
+        activeCurrency:    data.activeCurrency     ?? s.activeCurrency,
+        plannedSpends:     data.plannedSpends      ?? s.plannedSpends,
       }))
-
-      // Recompute derived values after hydration
       useMinervaStore.getState()._recompute()
-
-      setLastSynced?.(data.syncedAt ?? new Date().toISOString())
+      setLastSynced?.(new Date().toISOString())
       setSyncStatus?.('idle')
-      console.log(`[Minerva] Loaded from Drive (${file.id})`)
-      return true
+      console.log('[Minerva] Loaded from Drive')
     } catch (e) {
-      console.error('[Minerva] Load from Drive failed:', e)
+      console.error('[Minerva] Load failed:', e)
       setSyncStatus?.('error')
-      return false
     }
-  }, [])
+  }, [setSyncStatus, setLastSynced])
 
-  // ── Save to Drive (debounced) ─────────────────────────────────────────────
+  // ── Save to Drive (debounced) ──────────────────────────────────────────────
   const scheduleSave = useCallback(() => {
-    if (!isSignedInRef.current) return
-    pendingWriteRef.current = true
+    if (!tokenRef.current) return
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(async () => {
-      if (!pendingWriteRef.current) return
-      pendingWriteRef.current = false
       try {
         setSyncStatus?.('syncing')
         const state = useMinervaStore.getState()
-        const data  = extractPersistableState(state)
-        const newId = await writeFile(fileIdRef.current, data)
+        const newId = await writeFile(fileIdRef.current, {
+          accounts: state.accounts, assets: state.assets,
+          liabilities: state.liabilities, transactions: state.transactions,
+          reconciliationLog: state.reconciliationLog, budgets: state.budgets,
+          targets: state.targets, documents: state.documents,
+          fx: state.fx, surplusConfig: state.surplusConfig,
+          activeCurrency: state.activeCurrency, plannedSpends: state.plannedSpends,
+          liveLiquidity: state.liveLiquidity, netWorth: state.netWorth,
+        }, tokenRef.current)
         if (newId) fileIdRef.current = newId
         setLastSynced?.(new Date().toISOString())
         setSyncStatus?.('idle')
       } catch (e) {
-        console.error('[Minerva] Save to Drive failed:', e)
+        console.error('[Minerva] Save failed:', e)
         setSyncStatus?.('error')
-        // Re-queue — will retry on next mutation
-        pendingWriteRef.current = true
       }
     }, DEBOUNCE_MS)
-  }, [])
+  }, [setSyncStatus, setLastSynced])
 
-  // ── Subscribe to store mutations ──────────────────────────────────────────
+  // ── On mount: check for OAuth redirect token ───────────────────────────────
   useEffect(() => {
-    const unsub = useMinervaStore.subscribe(
-      state => state.meta?.updatedAt,  // trigger on any data mutation
-      () => scheduleSave()
-    )
+    const token = parseTokenFromHash() ?? getStoredToken()
+    if (token) {
+      tokenRef.current = token
+      loadFromDrive(token)
+    }
+  }, [loadFromDrive])
+
+  // ── Subscribe to store mutations ───────────────────────────────────────────
+  useEffect(() => {
+    const unsub = useMinervaStore.subscribe(() => scheduleSave())
     return () => { unsub(); clearTimeout(debounceRef.current) }
   }, [scheduleSave])
-
-  // ── Auto sign-in attempt on mount ─────────────────────────────────────────
-  useEffect(() => {
-    if (!CLIENT_ID) return
-    loadGapi().then(async () => {
-      const auth = window.gapi.auth2.getAuthInstance()
-      if (auth.isSignedIn.get()) {
-        isSignedInRef.current = true
-        await loadFromDrive()
-      }
-    }).catch(() => {
-      console.warn('[Minerva] GAPI load failed — running offline')
-    })
-  }, [loadFromDrive])
 
   return {
     syncStatus,
     signIn,
     signOut,
-    loadFromDrive,
-    scheduleSave,
-    isSignedIn: isSignedInRef.current,
+    isSignedIn: !!tokenRef.current,
   }
 }
