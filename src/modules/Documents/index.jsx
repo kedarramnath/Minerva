@@ -79,7 +79,7 @@ function getDocIcon(doc) {
 }
 
 // ─── Document Card ────────────────────────────────────────────────────────────
-function DocCard({ doc, isPinned, onPin, onUnpin, onTagClick, activeTags }) {
+function DocCard({ doc, isPinned, onPin, onUnpin, onTagClick, onRemoveTag, activeTags }) {
   const [showTagInput, setShowTagInput] = useState(false)
   const [newTag, setNewTag]             = useState('')
   const documents                       = useMinervaStore(s => s.documents)
@@ -107,22 +107,23 @@ function DocCard({ doc, isPinned, onPin, onUnpin, onTagClick, activeTags }) {
         <div className="flex-1 min-w-0">
           <p className="text-xs font-semibold text-navy leading-tight">{doc.title.replace(/\.[^.]+$/, '')}</p>
 
-          {/* Tags */}
+          {/* Tags — tap to filter, tap X to remove */}
           <div className="flex flex-wrap gap-1 mt-2">
             {doc.tags?.map(tag => {
               const active = activeTags.includes(tag)
               return (
-                <button
+                <span
                   key={tag}
-                  onClick={() => onTagClick(tag)}
-                  className={`text-[9px] font-mono px-1.5 py-0.5 rounded-full border transition-all active:scale-95 ${
-                    active
-                      ? 'bg-navy text-white border-navy'
-                      : 'bg-alabaster text-muted border-border'
+                  className={`inline-flex items-center gap-0.5 text-[9px] font-mono px-1.5 py-0.5 rounded-full border transition-all ${
+                    active ? 'bg-navy text-white border-navy' : 'bg-alabaster text-muted border-border'
                   }`}
                 >
-                  {tag}
-                </button>
+                  <button onClick={() => onTagClick(tag)}>{tag}</button>
+                  <button
+                    onClick={() => onRemoveTag(doc.id, tag)}
+                    className="ml-0.5 opacity-40 hover:opacity-100 leading-none"
+                  >×</button>
+                </span>
               )
             })}
             {showTagInput ? (
@@ -179,6 +180,14 @@ export function Documents({ onNavigateToAsset }) {
 
   const [query,      setQuery]      = useState('')
   const [activeTags, setActiveTags] = useState([])
+
+  // Remove a tag from a document
+  const removeTag = (docId, tag) => {
+    const updated = documents.map(d =>
+      d.id === docId ? { ...d, tags: (d.tags ?? []).filter(t => t !== tag) } : d
+    )
+    useMinervaStore.setState({ documents: updated })
+  }
 
   // Pin/unpin
   const togglePin = (id, pin) => {
@@ -349,6 +358,7 @@ export function Documents({ onNavigateToAsset }) {
                     onPin={id => togglePin(id, true)}
                     onUnpin={id => togglePin(id, false)}
                     onTagClick={toggleTag}
+                    onRemoveTag={removeTag}
                     activeTags={activeTags}
                   />
                 ))}
