@@ -1,296 +1,251 @@
 // src/hooks/useDriveFolderSync.js
-// Scans the Minerva Financials / Documents folder structure on Google Drive
-// and populates the Vault with all files found, preserving folder → category mapping.
+// OFFLINE-FIRST VAULT SYNC
 //
-// ROOT FOLDER ID: 1NhDBqwjZN-DsrjhwWF25LdSnQGGET6jT (Minerva Financials)
+// Strategy:
+//   - Document metadata saved permanently to localStorage via Zustand.
+//   - Vault works fully offline after first sync.
+//   - Vault button = merge new files only, never clears existing docs.
+//   - On every sync, ALL existing docs get tags re-applied (retag on rule changes).
+//   - Token expiry handled gracefully — Vault still works, sync skipped with warning.
 //
-// FOLDER → CATEGORY MAPPING:
-//   Documents/Identity/**        → 'identity'
-//   Documents/Corporate/**       → 'corporate'
-//   Documents/Real Estate/**     → 'property'
-//   Statements/**                → 'statement'
-//
-// SUBFOLDER → TAGS:
-//   Identity/UAE                 → ['UAE']
-//   Identity/India               → ['India']
-//   Identity/USA                 → ['USA']
-//   Identity/Family_Documents_AJ → ['Anisha', 'Family']
-//   Identity/Family_Documents_KR → ['Kedar', 'Family']
-//   Identity/Education           → ['Education']
-//   Identity/Main Identity Docs  → ['Kedar', 'Anisha']
-//   Corporate/Ikarma Properties  → ['Ikarma', 'USA', 'Houston']
-//   Corporate/Ikarma Ventures    → ['Ikarma', 'Singapore']
-//   Corporate/Infinity Holdings  → ['Infinity', 'USA']
-//   Corporate/The Kyck Limited   → ['KYCK', 'UAE']
-//   Corporate/Vista Trading      → ['Vista', 'UAE']
-//   Real Estate/Dubai            → ['Dubai', 'UAE']
-//   Real Estate/USA/1707 Windy   → ['Houston', 'SFH', 'USA']
-//   Real Estate/USA/6626 Supply  → ['Houston', 'Warehouse', 'USA']
+// FOLDER IDs:
+//   Minerva Financials : 1NhDBqwjZN-DsrjhwWF25LdSnQGGET6jT
+//   Documents          : 1nhPr-Hh_5ASXflJOYRkizmgNTHlAlIXO
 
 import { useCallback, useRef } from 'react'
 import { useMinervaStore }     from '../state/store.js'
 
-const ROOT_FOLDER_ID  = '1NhDBqwjZN-DsrjhwWF25LdSnQGGET6jT'
-const FOLDER_MIME     = 'application/vnd.google-apps.folder'
+const DOCS_FOLDER_ID = '1nhPr-Hh_5ASXflJOYRkizmgNTHlAlIXO'
+const FOLDER_MIME    = 'application/vnd.google-apps.folder'
 
-// ─── Folder → category + tags map ────────────────────────────────────────────
-const FOLDER_META = {
-  // ── Identity — UAE ─────────────────────────────────────────────────────────
-  'uae':                          { category: 'identity',  tags: ['UAE', '2026'] },
-  'india':                        { category: 'identity',  tags: ['India'] },
-  'usa':                          { category: 'identity',  tags: ['USA'] },
-
-  // ── Identity — Family KR (Kedar's parents: Ramnath + Mala) ────────────────
-  'family_documents_kr':          { category: 'identity',  tags: ['Family', 'Kedar', 'Amma', 'Appa', 'Ramnath', 'Mala', 'Kedar\'s Parents', 'India', 'Identity'] },
-
-  // ── Identity — Family AJ (Anisha's family: Anu Gurung + Rohan Joshi) ──────
-  'family_documents_aj':          { category: 'identity',  tags: ['Family', 'Anisha', 'Anu', 'Gurung', 'Rohan', 'Joshi', 'Anisha\'s Family', 'India', 'Identity'] },
-
-  // ── Identity — Education ───────────────────────────────────────────────────
-  'education':                    { category: 'identity',  tags: ['Education', 'Anisha', 'Degree'] },
-
-  // ── Identity — Main docs (Kedar, Anisha, Yuvi) ────────────────────────────
-  'main identity docs - minerva': { category: 'identity',  tags: ['Kedar', 'Anisha', 'Yuvaan', 'Identity', 'UAE'] },
-
-  // ── Corporate ──────────────────────────────────────────────────────────────
-  'ikarma properties llc':        { category: 'corporate', tags: ['Ikarma', 'USA', 'Houston', 'Warehouse', 'Corporate'] },
-  'ikarma ventures pte ltd':      { category: 'corporate', tags: ['Ikarma', 'Singapore', 'Corporate'] },
-  'infinity holdings llc':        { category: 'corporate', tags: ['Infinity', 'USA', 'Corporate'] },
-  'the kyck limited':             { category: 'corporate', tags: ['KYCK', 'UAE', 'Corporate'] },
-  'vista trading fzco':           { category: 'corporate', tags: ['Vista', 'UAE', 'Corporate'] },
-
-  // ── Real Estate ────────────────────────────────────────────────────────────
-  'dubai':                        { category: 'property',  tags: ['Dubai', 'UAE', 'Villa', 'Property'] },
-  '1707 windy meadow':            { category: 'property',  tags: ['Houston', 'SFH', 'USA', 'Property', 'Rental'] },
-  '6626 supply row':              { category: 'property',  tags: ['Houston', 'Warehouse', 'USA', 'Property', 'Ikarma'] },
-
-  // ── Top-level fallbacks ────────────────────────────────────────────────────
-  'identity':                     { category: 'identity',  tags: ['Identity'] },
-  'corporate':                    { category: 'corporate', tags: ['Corporate'] },
-  'real estate':                  { category: 'property',  tags: ['Property'] },
-  'documents':                    { category: 'other',     tags: [] },
-  'statements':                   { category: 'statement', tags: ['2026'] },
+// ─── Folder tags map ──────────────────────────────────────────────────────────
+const FOLDER_TAGS = {
+  'uae':                          ['UAE'],
+  'india':                        ['India'],
+  'usa':                          ['USA'],
+  'family_documents_kr':          ['Family','Kedar','Amma','Appa','Ramnath','Mala',"Kedar's Parents",'India','Identity'],
+  'family_documents_aj':          ['Family','Anisha','Anu','Gurung','Rohan','Joshi',"Anisha's Family",'India','Identity'],
+  'education':                    ['Education','Anisha','Degree'],
+  'main identity docs - minerva': ['Kedar','Anisha','Yuvaan','Identity','UAE'],
+  'ikarma properties llc':        ['Ikarma','USA','Houston','Warehouse','Corporate'],
+  'ikarma ventures pte ltd':      ['Ikarma','Singapore','Corporate'],
+  'infinity holdings llc':        ['Infinity','USA','Corporate'],
+  'the kyck limited':             ['KYCK','UAE','Corporate'],
+  'vista trading fzco':           ['Vista','UAE','Corporate'],
+  'dubai':                        ['Dubai','UAE','Villa','Property'],
+  '1707 windy meadow':            ['Houston','SFH','USA','Property','Rental'],
+  '6626 supply row':              ['Houston','Warehouse','USA','Property','Ikarma'],
+  'statements':                   ['Statement','2026'],
+  'chase':                        ['Chase','USA','Banking','Statement'],
+  'amex':                         ['Amex','USA','Banking','Statement'],
+  'amazon cc':                    ['Amazon','USA','Banking','Statement'],
+  'ibkr':                         ['IBKR','Investment','USA','Statement'],
+  'adcb':                         ['ADCB','UAE','Banking','Statement'],
+  'hsbc':                         ['HSBC','Banking','Statement'],
+  'wio':                          ['Wio','UAE','Banking','Statement'],
+  'hdfc':                         ['HDFC','India','Banking','Statement'],
 }
 
-// ─── Document-level smart tagger ─────────────────────────────────────────────
-// Adds additional tags based on the document filename itself
-function smartTagsFromTitle(title) {
-  const t = (title ?? '').toLowerCase()
+// ─── Smart tagger (exported so Documents UI can also use it) ──────────────────
+export function smartTagsFromTitle(title) {
+  const t    = (title ?? '').toLowerCase()
   const tags = []
 
-  // People — Kedar household
-  if (t.includes('kedar') || t.includes('ramnath'))          tags.push('Kedar')
-  if (t.includes('anisha') || t.includes('joshi'))           tags.push('Anisha')
+  // People
+  if (t.includes('kedar'))                                    tags.push('Kedar')
+  if (t.includes('anisha'))                                   tags.push('Anisha')
   if (t.includes('yuvi') || t.includes('yuvaan'))            tags.push('Yuvaan')
-
-  // People — Extended KR family
-  if (t.includes('ramnath') || t.includes('appa') || t.includes('mala') || t.includes('amma'))
-                                                              tags.push('Amma', 'Appa', 'Ramnath', 'Mala')
-
-  // People — Extended AJ family
-  if (t.includes('anu') || t.includes('gurung'))             tags.push('Anu', 'Gurung')
-  if (t.includes('rohan'))                                   tags.push('Rohan', 'Joshi')
+  if (t.includes('ramnath') || t.includes('appa'))           tags.push('Appa','Ramnath',"Kedar's Parents")
+  if (t.includes('mala') || t.includes('amma'))              tags.push('Amma','Mala',"Kedar's Parents")
+  if (t.includes('anu') || t.includes('gurung'))             tags.push('Anu','Gurung',"Anisha's Family")
+  if (t.includes('rohan') || t.includes('joshi'))            tags.push('Rohan','Joshi',"Anisha's Family")
 
   // Document types
-  if (t.includes('passport'))                                tags.push('Passport', 'Identity')
-  if (t.includes('emirates id') || t.includes('eid'))       tags.push('Emirates ID', 'Identity', 'UAE')
-  if (t.includes('visa'))                                    tags.push('Visa', 'Identity')
-  if (t.includes('aadhaar') || t.includes('aadhar'))        tags.push('Aadhaar', 'Identity', 'India')
-  if (t.includes('pan'))                                     tags.push('PAN', 'Identity', 'India')
-  if (t.includes('birth cert'))                              tags.push('Birth Certificate', 'Identity')
-  if (t.includes('marriage'))                                tags.push('Marriage Certificate', 'Identity')
-  if (t.includes('degree') || t.includes('diploma'))        tags.push('Education', 'Degree')
+  if (t.includes('passport'))                                 tags.push('Passport','Identity')
+  if (t.includes('emirates id') || t.includes(' eid'))       tags.push('Emirates ID','Identity','UAE')
+  if (t.includes('visa'))                                     tags.push('Visa','Identity')
+  if (t.includes('aadhaar') || t.includes('aadhar'))         tags.push('Aadhaar','Identity','India')
+  if (t.includes('pan card') || t.includes('pan.'))          tags.push('PAN','Identity','India')
+  if (t.includes('birth cert'))                               tags.push('Birth Certificate','Identity')
+  if (t.includes('marriage cert'))                            tags.push('Marriage Certificate','Identity')
+  if (t.includes('degree') || t.includes('diploma'))         tags.push('Education','Degree')
+  if (t.includes('statement'))                                tags.push('Statement')
+  if (t.includes('agreement'))                                tags.push('Agreement','Legal')
+  if (t.includes('mortgage'))                                 tags.push('Mortgage','Property')
+  if (t.includes('sblc') || t.includes('lien'))              tags.push('SBLC','Legal','FCNR')
+  if (t.includes('valuation'))                                tags.push('Valuation','Property')
+  if (t.includes('insurance'))                                tags.push('Insurance','Legal')
+  if (t.includes('title deed') || t.includes('oqood'))       tags.push('Title Deed','Property')
+  if (t.includes('possession'))                               tags.push('Possession','Property')
+  if (t.includes('shareholders'))                             tags.push('Shareholders','Corporate')
 
-  // Banks / institutions
-  if (t.includes('adcb'))                                    tags.push('ADCB', 'UAE', 'Banking')
-  if (t.includes('hsbc'))                                    tags.push('HSBC', 'Banking')
-  if (t.includes('wio'))                                     tags.push('Wio', 'UAE', 'Banking')
-  if (t.includes('enbd') || t.includes('emirates nbd'))     tags.push('ENBD', 'UAE', 'Banking')
-  if (t.includes('hdfc'))                                    tags.push('HDFC', 'India', 'Banking')
-  if (t.includes('axis'))                                    tags.push('Axis Bank', 'India', 'Banking')
-  if (t.includes('sbi'))                                     tags.push('SBI', 'India', 'Banking')
-  if (t.includes('chase'))                                   tags.push('Chase', 'USA', 'Banking')
-  if (t.includes('amex') || t.includes('american express')) tags.push('Amex', 'USA', 'Banking')
-  if (t.includes('amazon'))                                  tags.push('Amazon', 'USA', 'Banking')
-  if (t.includes('m&t') || t.includes('m and t'))           tags.push('M&T Bank', 'USA', 'Banking')
-  if (t.includes('dbs'))                                     tags.push('DBS', 'Singapore', 'Banking')
-  if (t.includes('ibkr') || t.includes('interactive'))      tags.push('IBKR', 'Investment', 'USA')
+  // Banks
+  if (t.includes('adcb'))                                     tags.push('ADCB','UAE','Banking')
+  if (t.includes('hsbc'))                                     tags.push('HSBC','Banking')
+  if (t.includes('wio'))                                      tags.push('Wio','UAE','Banking')
+  if (t.includes('enbd') || t.includes('emirates nbd'))      tags.push('ENBD','UAE','Banking')
+  if (t.includes('hdfc'))                                     tags.push('HDFC','India','Banking')
+  if (t.includes('axis bank') || t.includes('axis nro'))     tags.push('Axis Bank','India','Banking')
+  if (t.includes('sbi'))                                      tags.push('SBI','India','Banking')
+  if (t.includes('chase'))                                    tags.push('Chase','USA','Banking')
+  if (t.includes('amex') || t.includes('american express'))  tags.push('Amex','USA','Banking')
+  if (t.includes('amazon'))                                   tags.push('Amazon','USA','Banking')
+  if (t.includes('m&t') || t.includes('m and t'))            tags.push('M&T Bank','USA','Banking')
+  if (t.includes('dbs'))                                      tags.push('DBS','Singapore','Banking')
+  if (t.includes('ibkr') || t.includes('interactive broker'))tags.push('IBKR','Investment','USA')
+  if (t.includes('airwallex'))                                tags.push('Airwallex','Singapore','Banking')
 
   // Investments
-  if (t.includes('fcnr'))                                    tags.push('FCNR', 'Investment', 'India')
-  if (t.includes('sblc') || t.includes('lien'))             tags.push('SBLC', 'Legal', 'FCNR')
-  if (t.includes('dews'))                                    tags.push('DEWS', 'Investment', 'UAE')
-  if (t.includes('realty mogul') || t.includes('reit'))     tags.push('Realty Mogul', 'Investment', 'USA')
-  if (t.includes('portfolio'))                               tags.push('Investment', 'Portfolio')
+  if (t.includes('fcnr'))                                     tags.push('FCNR','Investment','India')
+  if (t.includes('dews'))                                     tags.push('DEWS','Investment','UAE')
+  if (t.includes('realty mogul') || t.includes('reit'))      tags.push('Realty Mogul','Investment','USA')
+  if (t.includes('portfolio'))                                tags.push('Investment','Portfolio')
+  if (t.includes('franklin'))                                 tags.push('Franklin','Investment','ADCB')
+  if (t.includes('blackrock'))                                tags.push('BlackRock','Investment','ADCB')
 
-  // Property
-  if (t.includes('villa') || t.includes('the villa'))       tags.push('Dubai Villa', 'UAE', 'Property')
-  if (t.includes('mortgage'))                                tags.push('Mortgage', 'Property')
-  if (t.includes('windy meadow'))                            tags.push('Houston SFH', 'USA', 'Property')
-  if (t.includes('supply row'))                              tags.push('Houston Warehouse', 'USA', 'Property')
-  if (t.includes('matunga') || t.includes('corner of five'))tags.push('Mumbai', 'India', 'Property')
-  if (t.includes('waters edge') || t.includes('pimple'))    tags.push('Pune', 'India', 'Property')
-  if (t.includes('darjeeling'))                              tags.push('Darjeeling', 'India', 'Property')
-  if (t.includes('bhor') || t.includes('rajghar'))          tags.push('Bhor', 'India', 'Property')
+  // Properties
+  if (t.includes('villa') || t.includes('villa centro'))     tags.push('Dubai Villa','UAE','Property')
+  if (t.includes('windy meadow'))                             tags.push('Houston SFH','USA','Property')
+  if (t.includes('supply row'))                               tags.push('Houston Warehouse','USA','Property')
+  if (t.includes('matunga') || t.includes('corner of five')) tags.push('Mumbai','India','Property')
+  if (t.includes('waters edge') || t.includes('pimple'))     tags.push('Pune','India','Property')
+  if (t.includes('darjeeling'))                               tags.push('Darjeeling','India','Property')
+  if (t.includes('bhor') || t.includes('rajghar'))           tags.push('Bhor','India','Property')
 
-  // Year tags from filename
-  const yearMatch = title?.match(/20\d{2}/)
-  if (yearMatch) tags.push(yearMatch[0])
+  // Corporate
+  if (t.includes('ikarma'))                                   tags.push('Ikarma','Corporate')
+  if (t.includes('kyck'))                                     tags.push('KYCK','Corporate','UAE')
+  if (t.includes('infinity'))                                 tags.push('Infinity','Corporate','USA')
+  if (t.includes('vista trading'))                            tags.push('Vista','Corporate','UAE')
+  if (t.includes('montfort'))                                 tags.push('Montfort','Corporate','UAE')
 
-  // Month tags
-  const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']
-  months.forEach(m => { if (t.includes(m)) tags.push(m.charAt(0).toUpperCase() + m.slice(1)) })
+  // Year + month
+  const yr = title?.match(/20\d{2}/)
+  if (yr) tags.push(yr[0])
+  ;['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].forEach(m => {
+    if (t.includes(m)) tags.push(m[0].toUpperCase() + m.slice(1))
+  })
 
   return [...new Set(tags)]
 }
 
-function getFolderMeta(folderName) {
-  const key = folderName.toLowerCase().trim()
-  return FOLDER_META[key] ?? { category: 'other', tags: [] }
-}
-
-// ─── Drive API helpers ────────────────────────────────────────────────────────
-
-async function driveRequest(path, token) {
-  const res = await fetch(`https://www.googleapis.com/drive/v3/${path}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  if (!res.ok) throw new Error(`Drive API error: ${res.status}`)
-  return res.json()
-}
+// ─── Drive API ────────────────────────────────────────────────────────────────
 
 async function listFolder(folderId, token) {
-  const q = encodeURIComponent(`'${folderId}' in parents and trashed=false`)
-  const fields = encodeURIComponent('files(id,name,mimeType,webViewLink,createdTime,modifiedTime)')
-  const data = await driveRequest(`files?q=${q}&fields=${fields}&pageSize=100`, token)
-  return data.files ?? []
+  const q      = encodeURIComponent(`'${folderId}' in parents and trashed=false`)
+  const fields = encodeURIComponent('files(id,name,mimeType,webViewLink,createdTime)')
+  const res    = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${fields}&pageSize=100`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  )
+  if (!res.ok) throw new Error(`Drive ${res.status}`)
+  return (await res.json()).files ?? []
 }
 
-// ─── Recursive folder scanner ─────────────────────────────────────────────────
-// Walks the folder tree, collecting all non-folder files with metadata
-
-async function scanFolder(folderId, token, parentMeta = { category: 'other', tags: [] }, depth = 0) {
-  if (depth > 4) return []  // safety guard
-
-  const items = await listFolder(folderId, token)
+async function scanFolder(folderId, token, parentTags = [], depth = 0) {
+  if (depth > 5) return []
+  const items   = await listFolder(folderId, token)
   const results = []
-
   for (const item of items) {
     if (item.mimeType === FOLDER_MIME) {
-      // It's a subfolder — determine its meta and recurse
-      const meta = getFolderMeta(item.name)
-      // Inherit parent tags, add subfolder tags
-      const mergedMeta = {
-        category: meta.category !== 'other' ? meta.category : parentMeta.category,
-        tags: [...new Set([...parentMeta.tags, ...meta.tags])],
-        folderName: item.name,
-      }
-      const subResults = await scanFolder(item.id, token, mergedMeta, depth + 1)
-      results.push(...subResults)
+      const ft     = FOLDER_TAGS[item.name.toLowerCase().trim()] ?? []
+      const merged = [...new Set([...parentTags, ...ft])]
+      results.push(...await scanFolder(item.id, token, merged, depth + 1))
     } else {
-      // It's a file — add to results with inherited metadata
+      const titleTags = smartTagsFromTitle(item.name)
       results.push({
         driveId:   item.id,
         title:     item.name,
-        category:  parentMeta.category,
-        tags:      parentMeta.tags,
+        tags:      [...new Set([...parentTags, ...titleTags])],
         driveUrl:  item.webViewLink,
         dateAdded: item.createdTime?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
-        folder:    parentMeta.folderName ?? '',
       })
     }
   }
-
   return results
-}
-
-// ─── Find Documents subfolder inside root ─────────────────────────────────────
-
-async function findDocumentsFolder(token) {
-  const items = await listFolder(ROOT_FOLDER_ID, token)
-  const docsFolder = items.find(i => i.mimeType === FOLDER_MIME && i.name === 'Documents')
-  return docsFolder?.id ?? null
 }
 
 // ─── HOOK ─────────────────────────────────────────────────────────────────────
 
 export function useDriveFolderSync() {
-  const documents       = useMinervaStore(s => s.documents)
-  const addDocument     = useMinervaStore(s => s.addDocument)
-  const setSyncStatus   = useMinervaStore(s => s.setSyncStatus)
-  const isRunningRef    = useRef(false)
+  const setSyncStatus = useMinervaStore(s => s.setSyncStatus)
+  const isRunningRef  = useRef(false)
 
   const syncDocuments = useCallback(async () => {
     if (isRunningRef.current) return
     isRunningRef.current = true
 
     try {
-      setSyncStatus('syncing')
-
-      // Get token from localStorage (set by useDriveSync redirect flow)
+      // ── Token check — graceful degradation ───────────────────────────────────
       const stored = localStorage.getItem('minerva_drive_token')
       if (!stored) {
-        console.warn('[Minerva] Not signed in to Drive — tap Connect Drive first')
+        console.log('[Minerva] Vault: working offline (not signed in)')
         setSyncStatus('idle')
+        isRunningRef.current = false
         return
       }
       const { access_token: token, expires_at } = JSON.parse(stored)
       if (!token || Date.now() > expires_at) {
-        console.warn('[Minerva] Drive token expired — please sign in again')
+        console.log('[Minerva] Vault: working offline (token expired — tap Connect Drive to sync new files)')
         setSyncStatus('idle')
+        isRunningRef.current = false
         return
       }
 
-      console.log('[Minerva] Scanning Drive Documents folder…')
+      setSyncStatus('syncing')
+      console.log('[Minerva] Vault: syncing from Drive…')
 
-      // Documents folder ID (hardcoded for reliability)
-      const docsFolderId = '1nhPr-Hh_5ASXflJOYRkizmgNTHlAlIXO'
-      console.log('[Minerva] Using Documents folder:', docsFolderId)
+      // ── Scan Drive ───────────────────────────────────────────────────────────
+      const driveFiles = await scanFolder(DOCS_FOLDER_ID, token)
+      console.log(`[Minerva] Vault: found ${driveFiles.length} files`)
 
-      // Scan all files recursively
-      const files = await scanFolder(docsFolderId, token, { category: 'other', tags: [] })
-      console.log(`[Minerva] Found ${files.length} files in Drive Documents`)
+      // ── Merge into store ──────────────────────────────────────────────────────
+      const currentDocs = useMinervaStore.getState().documents
+      const byDriveId   = new Map(currentDocs.filter(d => d.driveId).map(d => [d.driveId, d]))
+      const byDriveUrl  = new Map(currentDocs.filter(d => d.driveUrl).map(d => [d.driveUrl, d]))
 
-      // Build set of existing Drive IDs to avoid duplicates
-      const existingDriveIds = new Set(
-        documents
-          .filter(d => d.driveId)
-          .map(d => d.driveId)
-      )
-      const existingUrls = new Set(
-        documents
-          .filter(d => d.driveUrl)
-          .map(d => d.driveUrl)
-      )
+      let added = 0, retagged = 0
+      const updatedDocs = [...currentDocs]
 
-      // Add only new files
-      let added = 0
-      for (const file of files) {
-        if (existingDriveIds.has(file.driveId)) continue
-        if (existingUrls.has(file.driveUrl)) continue
+      for (const file of driveFiles) {
+        const existing = byDriveId.get(file.driveId) ?? byDriveUrl.get(file.driveUrl)
 
-        addDocument({
-          title:          file.title,
-          category:       file.category,
-          tags:           file.tags,
-          driveUrl:       file.driveUrl,
-          driveId:        file.driveId,
-          linked_doc_uids: [],
-          dateAdded:      file.dateAdded,
-        })
-        added++
+        if (existing) {
+          // Retag: merge new auto-tags with any custom tags user added manually
+          const customTags = (existing.tags ?? []).filter(t => !file.tags.includes(t))
+          const merged     = [...new Set([...file.tags, ...customTags])]
+          const idx        = updatedDocs.findIndex(d => d.id === existing.id)
+          if (idx >= 0) {
+            updatedDocs[idx] = { ...existing, tags: merged, driveId: file.driveId }
+            retagged++
+          }
+        } else {
+          // New file
+          updatedDocs.push({
+            id:              `doc_${file.driveId}`,
+            title:           file.title,
+            tags:            file.tags,
+            driveUrl:        file.driveUrl,
+            driveId:         file.driveId,
+            dateAdded:       file.dateAdded,
+            linked_doc_uids: [],
+            pinned:          false,
+          })
+          added++
+        }
       }
 
-      console.log(`[Minerva] Vault sync complete — ${added} new documents added`)
+      useMinervaStore.setState({ documents: updatedDocs })
+      console.log(`[Minerva] Vault: ${added} new, ${retagged} retagged`)
       setSyncStatus('idle')
 
     } catch (err) {
-      console.error('[Minerva] Drive folder sync failed:', err)
+      console.error('[Minerva] Vault sync error:', err)
       setSyncStatus('error')
     } finally {
       isRunningRef.current = false
     }
-  }, [documents, addDocument, setSyncStatus])
+  }, [setSyncStatus])
 
   return { syncDocuments }
 }
