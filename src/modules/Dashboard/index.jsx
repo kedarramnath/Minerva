@@ -17,7 +17,6 @@ import { CATEGORY_META, COUNTRY_FLAGS } from '../../theme.js'
 import { OwnerFilter }          from '../../components/shared/OwnerFilter.jsx'
 import { SurplusProjection }     from '../../components/shared/SurplusProjection.jsx'
 import { SurplusEngine }         from '../../components/shared/SurplusEngine.jsx'
-import { CapitalAllocation }     from '../../components/shared/CapitalAllocation.jsx'
 import { BurnRateChart }         from '../../components/charts/BurnRateChart.jsx'
 import { TransactionSearch }     from '../../components/shared/TransactionSearch.jsx'
 
@@ -157,7 +156,8 @@ function CashByCountry() {
                 return (
                   <div
                     key={acct.id}
-                    className={`flex items-center justify-between px-4 py-2.5 ${i < accts.length - 1 ? 'border-b border-border/40' : ''}`}
+                    onClick={() => setReconcileAcct(acct)}
+                    className={`flex items-center justify-between px-4 py-2.5 cursor-pointer active:bg-alabaster transition-colors ${i < accts.length - 1 ? 'border-b border-border/40' : ''}`}
                   >
                     <div className="flex items-center gap-2.5">
                       {/* Reconciled indicator dot */}
@@ -480,7 +480,8 @@ function ViewToggle({ active, onChange }) {
 // Assets left (sage). Liabilities right (rose). Net worth centred at top.
 
 function HawkEye() {
-  const [drawerItem, setDrawerItem] = useState(null)  // { id, label, sub, aed, side }
+  const [drawerItem, setDrawerItem]   = useState(null)
+  const [reconcileAcct, setReconcileAcct] = useState(null)
   const ownerFilter       = useMinervaStore(s => s.ownerFilter)
   const netWorth          = useMinervaStore(s => s.netWorth)
   const _accounts         = useMinervaStore(s => s.accounts)
@@ -661,6 +662,14 @@ function HawkEye() {
           </div>
         </div>
       </div>
+
+      {/* Reconcile drawer */}
+      {reconcileAcct && (
+        <ReconcileDrawer
+          account={reconcileAcct}
+          onClose={() => setReconcileAcct(null)}
+        />
+      )}
 
       {/* Asset / Liability detail drawer */}
       {drawerItem && (
@@ -893,7 +902,6 @@ export function Dashboard({ onOpenReconcile }) {
       {view === 'activity' && (
         <>
           <SurplusEngine />
-          <CapitalAllocation />
           <SurplusProjection />
           <FCNRBanner />
           <ReconcileBar onOpenOpening={openReconcile} onOpenReconcile={openReconcile} />

@@ -265,10 +265,111 @@ function StatementImportModal({ onClose }) {
   )
 }
 
+
+// ── Reconcile Modal (triggered from FAB) ──────────────────────────────────────
+function ReconcileModal({ onClose }) {
+  const accounts          = useMinervaStore(s => s.accounts)
+  const selectLiveBalance = useMinervaStore(s => s.selectLiveBalance)
+  const addTransaction    = useMinervaStore(s => s.addTransaction)
+
+  const [accountId, setAccountId] = useState('')
+  const [liveInput, setLiveInput] = useState('')
+  const [step, setStep]           = useState('select') // select | input | confirm | done
+
+  const account = accounts.find(a => a.id === accountId)
+  const tracked = account ? selectLiveBalance(accountId) : 0
+  const live    = parseFloat(liveInput) || 0
+  const diff    = live - tracked
+  const absDiff = Math.abs(diff)
+  const matched = absDiff < 0.01
+
+  const fmt = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  const handlePost = () => {
+    if (!matched) {
+      addTransaction({
+        date:        new Date().toISOString().slice(0, 10),
+        accountId,
+        amount:      diff,
+        currency:    account.currency,
+        description: 'Reconciliation adjustment',
+        category:    'other',
+        type:        'reconciliation_adjustment',
+        status:      'reconciled',
+        loggedBy:    'Reconcile',
+      })
+    }
+    const accts = useMinervaStore.getState().accounts
+    useMinervaStore.setState({
+      accounts: accts.map(a =>
+        a.id === accountId
+          ? { ...a, reconciledBalance: live, reconciledAt: new Date().toISOString().slice(0, 10) }
+          : a
+      )
+    })
+    setStep('done')
+  }
+
+  if (step === 'done') return (
+    <Sheet title="Reconciliation" onClose={onClose} onSubmit={onClose} submitLabel="Done">
+      <div className="text-center py-4">
+        <p className="text-3xl mb-2">{matched ? '✅' : '⚖️'}</p>
+        <p className="text-sm font-semibold text-navy">{matched ? 'Balances match' : 'Adjustment posted'}</p>
+        <p className="text-xs font-mono text-muted mt-1">{account?.shortName} · {account?.currency} {fmt(live)}</p>
+      </div>
+    </Sheet>
+  )
+
+  if (step === 'confirm') return (
+    <Sheet title="Confirm Adjustment" onClose={onClose} onSubmit={handlePost} submitLabel="Post Adjustment">
+      <div className="space-y-2 bg-alabaster rounded-xl p-3 font-mono text-xs">
+        <div className="flex justify-between"><span className="text-muted">Minerva balance</span><span>{account.currency} {fmt(tracked)}</span></div>
+        <div className="flex justify-between"><span className="text-muted">Live balance</span><span>{account.currency} {fmt(live)}</span></div>
+        <div className="flex justify-between font-bold border-t border-border pt-2">
+          <span className="text-muted">Adjustment</span>
+          <span className={diff >= 0 ? 'text-sage' : 'text-rose'}>{diff >= 0 ? '+' : ''}{account.currency} {fmt(diff)}</span>
+        </div>
+      </div>
+      <p className="text-[10px] font-mono text-muted">A single reconciliation entry will be posted.</p>
+    </Sheet>
+  )
+
+  if (step === 'input') return (
+    <Sheet title={`Reconcile — ${account?.shortName}`} subtitle={`Minerva: ${account?.currency} ${fmt(tracked)}`} onClose={onClose} onSubmit={() => liveInput && setStep(matched ? 'done' : 'confirm')} submitLabel="Check Balance">
+      <Field label="Your actual balance right now">
+        <div className="flex items-center gap-2 px-3.5 py-3 rounded-xl border border-border bg-alabaster">
+          <span className="text-xs font-mono text-muted">{account?.currency}</span>
+          <input type="number" value={liveInput} onChange={e => setLiveInput(e.target.value)}
+            placeholder="0.00" autoFocus className="flex-1 bg-transparent text-sm font-mono text-slate focus:outline-none" />
+        </div>
+      </Field>
+      {liveInput && (
+        <div className={`rounded-xl px-3 py-2.5 text-xs font-mono ${matched ? 'bg-sage-lt text-sage' : 'bg-amber-lt text-amber'}`}>
+          {matched ? '✓ Balances match' : `Discrepancy: ${account?.currency} ${fmt(absDiff)}`}
+        </div>
+      )}
+    </Sheet>
+  )
+
+  return (
+    <Sheet title="Reconcile Account" subtitle="Update a live balance" onClose={onClose} onSubmit={() => accountId && setStep('input')} submitLabel="Next →">
+      <Field label="Select Account">
+        <select value={accountId} onChange={e => setAccountId(e.target.value)} className={selectCls}>
+          <option value="">— Choose account —</option>
+          {accounts.filter(a => a.active).map(a => (
+            <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>
+          ))}
+        </select>
+      </Field>
+    </Sheet>
+  )
+}
+
 export function FABModal({ context, onClose }) {
   const MODALS = {
     dashboard:    TransactionModal,
     import:       StatementImportModal,
+    reconcile:    ReconcileModal,
     balancesheet: ValuationModal,
     budgets:      BudgetModal,
     planning:     MilestoneModal,
