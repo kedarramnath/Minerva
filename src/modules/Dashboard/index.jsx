@@ -986,10 +986,19 @@ function AssetDrawer({ item, onClose, activeCurrency, selectInDisplay }) {
 
 export function Dashboard({ onOpenReconcile }) {
   const openReconcile = onOpenReconcile ?? (() => {})
-  const [view, setView] = useState('activity')   // 'activity' | 'hawkeye'
+  const [view, setView] = useState('activity')
+  const [reconcileAcct, setReconcileAcct] = useState(null)
 
   return (
     <div className="min-h-screen bg-alabaster pb-28">
+
+      {/* Reconcile drawer — accessible from activity view */}
+      {reconcileAcct && (
+        <ReconcileDrawer
+          account={reconcileAcct}
+          onClose={() => setReconcileAcct(null)}
+        />
+      )}
 
       {/* ── Shared header (always shown) ─────────────────────────────────── */}
       <div className="px-5 pt-14 pb-5 bg-navy">
