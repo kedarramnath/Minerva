@@ -148,23 +148,16 @@ export function useDriveFolderSync() {
     try {
       setSyncStatus('syncing')
 
-      // Get OAuth token from gapi
-      if (!window.gapi?.auth2) {
-        console.warn('[Minerva] Drive folder sync: gapi not ready')
+      // Get token from localStorage (set by useDriveSync redirect flow)
+      const stored = localStorage.getItem('minerva_drive_token')
+      if (!stored) {
+        console.warn('[Minerva] Not signed in to Drive — tap Connect Drive first')
         setSyncStatus('idle')
         return
       }
-
-      const auth = window.gapi.auth2.getAuthInstance()
-      if (!auth?.isSignedIn?.get()) {
-        console.warn('[Minerva] Drive folder sync: not signed in')
-        setSyncStatus('idle')
-        return
-      }
-
-      const token = auth.currentUser.get().getAuthResponse().access_token
-      if (!token) {
-        console.warn('[Minerva] Drive folder sync: no access token')
+      const { access_token: token, expires_at } = JSON.parse(stored)
+      if (!token || Date.now() > expires_at) {
+        console.warn('[Minerva] Drive token expired — please sign in again')
         setSyncStatus('idle')
         return
       }

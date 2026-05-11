@@ -209,5 +209,6 @@ export function useDriveSync() {
     signIn,
     signOut,
     isSignedIn: !!tokenRef.current,
+    getToken: () => tokenRef.current,
   }
 }
