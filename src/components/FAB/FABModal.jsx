@@ -2,6 +2,7 @@
 import { useState, useRef } from 'react'
 import { useMinervaStore } from '../../state/store.js'
 import { parseStatement, parseStatementRows, ACCOUNT_NUMBER_MAP, detectBank } from '../../utils/statementParsers.js'
+import { categoriseTransaction, recategoriseAll, CATEGORIES } from '../../utils/categoryRules.js'
 import { CATEGORY_META } from '../../theme.js'
 
 
@@ -10,6 +11,7 @@ function StatementImportModal({ onClose }) {
   const accounts       = useMinervaStore(s => s.accounts)
   const addTransaction = useMinervaStore(s => s.addTransaction)
   const reconcile      = useMinervaStore(s => s.reconcile)
+  const updateAccount  = useMinervaStore(s => s.updateAccount)
 
   const [step, setStep]         = useState('upload')   // upload | preview | done
   const [parsed, setParsed]     = useState(null)
@@ -83,7 +85,7 @@ function StatementImportModal({ onClose }) {
         amount:      txn.amount,
         currency:    txn.currency,
         description: txn.description,
-        category:    txn.amount > 0 ? 'income' : 'other',
+        category:    categoriseTransaction(txn),
         loggedBy:    'Import',
         reference:   txn.reference,
         type:        'imported',
@@ -91,14 +93,23 @@ function StatementImportModal({ onClose }) {
       })
     })
 
-    // Reconcile with closing balance
-    reconcile?.({
-      accountId,
-      reconciledBalance: parsed.closingBalance,
-      reconciledDate:    parsed.period?.split(' to ')[1] ?? new Date().toISOString().slice(0, 10),
-      drift:             0,
-      month:             parsed.period?.split(' to ')[1]?.slice(0, 7) ?? new Date().toISOString().slice(0, 7),
-    })
+    // Update account reconciled balance with closing balance from statement
+    if (parsed.closingBalance !== null && parsed.closingBalance !== undefined) {
+      const closingDate = parsed.period?.split(' to ')[1] ?? new Date().toISOString().slice(0, 10)
+      const month = closingDate.slice(0, 7)
+      try {
+        reconcile?.(accountId, parsed.closingBalance, month)
+      } catch(e) {
+        // Fallback: directly update account balance
+        const accounts = useMinervaStore.getState().accounts
+        const updated = accounts.map(a =>
+          a.id === accountId
+            ? { ...a, reconciledBalance: parsed.closingBalance, reconciledAt: closingDate }
+            : a
+        )
+        useMinervaStore.setState({ accounts: updated })
+      }
+    }
 
     setStep('done')
     setImporting(false)
@@ -131,8 +142,15 @@ function StatementImportModal({ onClose }) {
             }
           </div>
         )}
+        <button onClick={() => {
+          const txns = useMinervaStore.getState().transactions
+          useMinervaStore.setState({ transactions: recategoriseAll(txns) })
+        }}
+          className="mt-3 w-full py-3 border border-border rounded-2xl text-xs font-mono text-muted">
+          ↺ Re-categorise all existing transactions
+        </button>
         <button onClick={onClose}
-          className="mt-6 w-full py-3.5 bg-navy text-white rounded-2xl text-sm font-semibold">
+          className="mt-3 w-full py-3.5 bg-navy text-white rounded-2xl text-sm font-semibold">
           Done
         </button>
       </div>
@@ -229,14 +247,14 @@ function StatementImportModal({ onClose }) {
   )
 
   return (
-    <Sheet title="Import Statement" subtitle="ADCB (CSV) · ENBD (XLSX) · more banks coming" onClose={onClose} onSubmit={() => fileRef.current?.click()} submitLabel="Choose CSV File">
+    <Sheet title="Import Statement" subtitle="ADCB · ENBD · HSBC · Wio Current · Wio Credit" onClose={onClose} onSubmit={() => fileRef.current?.click()} submitLabel="Choose CSV File">
       <div
         onClick={() => fileRef.current?.click()}
         className="border-2 border-dashed border-border rounded-2xl p-8 text-center cursor-pointer active:bg-alabaster transition-colors"
       >
         <p className="text-3xl mb-2">📂</p>
         <p className="text-sm font-semibold text-slate">Select bank statement CSV</p>
-        <p className="text-[10px] font-mono text-muted mt-1">ADCB CSV · ENBD XLSX supported</p>
+        <p className="text-[10px] font-mono text-muted mt-1">ADCB CSV · ENBD XLSX · HSBC CSV · Wio CSV</p>
       </div>
       {error && (
         <div className="bg-rose-lt border border-rose/20 rounded-xl px-3 py-2.5">
