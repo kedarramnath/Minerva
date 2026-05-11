@@ -11,7 +11,8 @@ export function fmt(amount, currency = 'AED', options = {}) {
     if (abs >= 1_000_000)      { val = abs / 1_000_000; suffix = 'M' }
     else if (abs >= 1_000)     { val = abs / 1_000;     suffix = 'K' }
     else                       { val = abs;              suffix = '' }
-    const formatted = suffix ? `${val.toFixed(val >= 10 ? 1 : 2)}${suffix}` : val.toFixed(0)
+    const decimals = suffix ? (val >= 100 ? 0 : 1) : 0
+    const formatted = suffix ? `${val.toFixed(decimals)}${suffix}` : val.toFixed(0)
     return `${sign}${CURRENCY_SYMBOLS[currency] || currency} ${formatted}`
   }
   const decimals  = options.decimals ?? 0

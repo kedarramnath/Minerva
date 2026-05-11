@@ -14,6 +14,12 @@ import { useMinervaStore } from '../../state/store.js'
 import { CurrencyToggle }  from '../../components/shared/CurrencyToggle.jsx'
 import { fmt }             from '../../utils/currency.js'
 import { CATEGORY_META, COUNTRY_FLAGS } from '../../theme.js'
+import { OwnerFilter }          from '../../components/shared/OwnerFilter.jsx'
+import { SurplusProjection }     from '../../components/shared/SurplusProjection.jsx'
+import { SurplusEngine }         from '../../components/shared/SurplusEngine.jsx'
+import { CapitalAllocation }     from '../../components/shared/CapitalAllocation.jsx'
+import { BurnRateChart }         from '../../components/charts/BurnRateChart.jsx'
+import { TransactionSearch }     from '../../components/shared/TransactionSearch.jsx'
 
 // ─── Sub-components (no local financial state) ────────────────────────────────
 
@@ -76,7 +82,13 @@ function FCNRBanner() {
 const COUNTRY_ORDER = ['UAE', 'India', 'USA', 'Singapore']
 
 function CashByCountry() {
-  const accounts          = useMinervaStore(s => s.accounts)
+  const ownerFilter       = useMinervaStore(s => s.ownerFilter)
+  const _allAccounts      = useMinervaStore(s => s.accounts)
+  const accounts          = (!ownerFilter || ownerFilter === 'all')
+    ? _allAccounts
+    : ownerFilter === 'Family'
+      ? _allAccounts.filter(a => a.owner === 'Family')
+      : _allAccounts.filter(a => a.owner === ownerFilter || a.owner === 'Family')
   const activeCurrency    = useMinervaStore(s => s.activeCurrency)
   const selectLiveBalance = useMinervaStore(s => s.selectLiveBalance)
   const selectInDisplay   = useMinervaStore(s => s.selectInDisplayCurrency)
@@ -99,11 +111,19 @@ function CashByCountry() {
     return amount
   }
 
+  const liquidAccounts = accounts.filter(a => a.active && ['current', 'savings'].includes(a.type))
+  const ownerLabel = ownerFilter === 'all' ? '' : ownerFilter === 'Family' ? 'Family · ' : `${ownerFilter} · `
+
   return (
     <div className="px-5 mt-6">
       <p className="text-[11px] font-mono text-muted uppercase tracking-widest mb-3">
-        Cash by Country
+        {ownerLabel}Cash by Country
       </p>
+      {liquidAccounts.length === 0 && (
+        <div className="bg-surface rounded-2xl border border-border px-4 py-6 text-center">
+          <p className="text-xs text-muted">No liquid accounts for this filter.</p>
+        </div>
+      )}
       <div className="space-y-2">
         {COUNTRY_ORDER.map(country => {
           const accts = grouped[country]
@@ -340,7 +360,13 @@ function RecentTransactions() {
 
 /** Reconciliation status strip — which accounts need attention */
 function ReconciliationStatus() {
-  const accounts          = useMinervaStore(s => s.accounts)
+  const ownerFilter       = useMinervaStore(s => s.ownerFilter)
+  const _allAccounts      = useMinervaStore(s => s.accounts)
+  const accounts          = (!ownerFilter || ownerFilter === 'all')
+    ? _allAccounts
+    : ownerFilter === 'Family'
+      ? _allAccounts.filter(a => a.owner === 'Family')
+      : _allAccounts.filter(a => a.owner === ownerFilter || a.owner === 'Family')
   const transactions      = useMinervaStore(s => s.transactions)
 
   // Accounts that have pending transactions but no reconciliation yet
@@ -417,15 +443,6 @@ function SurplusPill() {
           {isHealthy ? '+' : '−'}{fmt(displaySurplus, activeCurrency, { compact: true })}
         </span>
       </div>
-      {/* Asset / Liability detail drawer */}
-      {drawerItem && (
-        <AssetDrawer
-          item={drawerItem}
-          onClose={() => setDrawerItem(null)}
-          activeCurrency={activeCurrency}
-          selectInDisplay={selectInDisplay}
-        />
-      )}
     </div>
   )
 }
@@ -464,10 +481,21 @@ function ViewToggle({ active, onChange }) {
 
 function HawkEye() {
   const [drawerItem, setDrawerItem] = useState(null)  // { id, label, sub, aed, side }
-  const accounts          = useMinervaStore(s => s.accounts)
-  const assets            = useMinervaStore(s => s.assets)
-  const liabilities       = useMinervaStore(s => s.liabilities)
+  const ownerFilter       = useMinervaStore(s => s.ownerFilter)
   const netWorth          = useMinervaStore(s => s.netWorth)
+  const _accounts         = useMinervaStore(s => s.accounts)
+  const _assets           = useMinervaStore(s => s.assets)
+  const _liabilities      = useMinervaStore(s => s.liabilities)
+
+  // Inline filter — reactive because ownerFilter + raw collections are both subscribed
+  const filterByOwner = (items) => {
+    if (!ownerFilter || ownerFilter === 'all') return items
+    if (ownerFilter === 'Family') return items.filter(i => i.owner === 'Family')
+    return items.filter(i => i.owner === ownerFilter || i.owner === 'Family')
+  }
+  const accounts    = filterByOwner(_accounts)
+  const assets      = filterByOwner(_assets)
+  const liabilities = filterByOwner(_liabilities)
   const activeCurrency    = useMinervaStore(s => s.activeCurrency)
   const selectLiveBalance = useMinervaStore(s => s.selectLiveBalance)
   const selectInDisplay   = useMinervaStore(s => s.selectInDisplayCurrency)
@@ -633,6 +661,16 @@ function HawkEye() {
           </div>
         </div>
       </div>
+
+      {/* Asset / Liability detail drawer */}
+      {drawerItem && (
+        <AssetDrawer
+          item={drawerItem}
+          onClose={() => setDrawerItem(null)}
+          activeCurrency={activeCurrency}
+          selectInDisplay={selectInDisplay}
+        />
+      )}
     </div>
   )
 }
@@ -800,13 +838,25 @@ export function Dashboard({ onOpenReconcile }) {
 
       {/* ── Shared header (always shown) ─────────────────────────────────── */}
       <div className="px-5 pt-14 pb-5 bg-navy">
-        <p className="text-[10px] font-mono tracking-[0.2em] text-white/30 uppercase mb-4">
-          Minerva · Command Centre
-        </p>
+        <div className="flex items-center gap-3 mb-4">
+          <img
+            src="/Minerva/icons/logo-header.png"
+            alt="Minerva"
+            className="w-8 h-8 rounded-lg opacity-90"
+          />
+          <p className="text-[10px] font-mono tracking-[0.2em] uppercase" style={{color: '#CBD5E1'}}>
+            Minerva · Command Centre
+          </p>
+        </div>
 
         {/* View toggle — sits above the metrics */}
-        <div className="mb-5">
+        <div className="mb-3">
           <ViewToggle active={view} onChange={setView} />
+        </div>
+
+        {/* Owner filter — persistent across Activity and Hawk Eye */}
+        <div className="mb-4">
+          <OwnerFilter />
         </div>
 
         {/* Activity header: liquid cash */}
@@ -842,6 +892,9 @@ export function Dashboard({ onOpenReconcile }) {
       {/* ── View body ────────────────────────────────────────────────────── */}
       {view === 'activity' && (
         <>
+          <SurplusEngine />
+          <CapitalAllocation />
+          <SurplusProjection />
           <FCNRBanner />
           <ReconcileBar onOpenOpening={openReconcile} onOpenReconcile={openReconcile} />
           <ReconciliationStatus />
@@ -863,7 +916,13 @@ export function Dashboard({ onOpenReconcile }) {
 //   2. Reconcile Account — monthly close flow
 
 export function ReconcileBar({ onOpenOpening, onOpenReconcile }) {
-  const accounts      = useMinervaStore(s => s.accounts)
+  const ownerFilter   = useMinervaStore(s => s.ownerFilter)
+  const _allAccounts  = useMinervaStore(s => s.accounts)
+  const accounts      = (!ownerFilter || ownerFilter === 'all')
+    ? _allAccounts
+    : ownerFilter === 'Family'
+      ? _allAccounts.filter(a => a.owner === 'Family')
+      : _allAccounts.filter(a => a.owner === ownerFilter || a.owner === 'Family')
   const transactions  = useMinervaStore(s => s.transactions)
 
   const pendingCount  = transactions.filter(t => t.status === 'pending').length

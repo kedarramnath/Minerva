@@ -1,6 +1,8 @@
 // src/App.jsx
-import { useState }             from 'react'
+import { useState, useEffect }  from 'react'
 import { useMinervaStore }      from './state/store.js'
+import { ProcessingOverlay, SyncStatusBar, DashboardSkeleton } from './components/shared/LoadingState.jsx'
+import { useDriveFolderSync } from './hooks/useDriveFolderSync.js'
 import { useDriveSync }         from './hooks/useDriveSync.js'
 import { BottomNav }            from './components/BottomNav.jsx'
 import { FAB }                  from './components/FAB/FAB.jsx'
@@ -21,7 +23,7 @@ const SCREENS = {
 
 // ─── Sync status indicator ────────────────────────────────────────────────────
 
-function SyncBadge({ status, lastSyncedAt, onSignIn }) {
+function SyncBadge({ status, lastSyncedAt, onSignIn, onSyncVault }) {
   if (!import.meta.env.VITE_GOOGLE_CLIENT_ID) return null
 
   const label = {
@@ -39,12 +41,21 @@ function SyncBadge({ status, lastSyncedAt, onSignIn }) {
   }[status] ?? 'text-muted'
 
   return (
-    <button
-      onClick={status === 'idle' ? undefined : onSignIn}
-      className={`fixed top-4 right-4 z-20 text-[9px] font-mono px-2 py-1 bg-surface/80 backdrop-blur rounded-lg border border-border shadow-sm ${color}`}
-    >
-      {label}
-    </button>
+    <div className="fixed top-4 right-4 z-20 flex items-center gap-1.5">
+      <button
+        onClick={onSyncVault}
+        className="text-[9px] font-mono px-2 py-1 bg-surface/80 backdrop-blur rounded-lg border border-border shadow-sm text-teal/80"
+        title="Sync Drive Documents to Vault"
+      >
+        🗂 Vault
+      </button>
+      <button
+        onClick={status === 'idle' ? undefined : onSignIn}
+        className={`text-[9px] font-mono px-2 py-1 bg-surface/80 backdrop-blur rounded-lg border border-border shadow-sm ${color}`}
+      >
+        {label}
+      </button>
+    </div>
   )
 }
 
@@ -58,10 +69,18 @@ export default function App() {
   const lastSyncedAt = useMinervaStore(s => s.lastSyncedAt)
 
   const [modal, setModal]           = useState(null) // null | 'opening' | 'reconcile'
+  const [isLoading, setIsLoading]   = useState(true)
+
+  // Brief loading state on first mount
+  useEffect(() => {
+    const t = setTimeout(() => setIsLoading(false), 800)
+    return () => clearTimeout(t)
+  }, [])
   const [hawkTarget, setHawkTarget] = useState(null)
 
   // Drive sync — initialises on mount, subscribes to mutations
-  const { signIn } = useDriveSync()
+  const { signIn }        = useDriveSync()
+  const { syncDocuments } = useDriveFolderSync()
 
   const noneAnchored    = accounts.every(a => !a.reconciledAt)
   const showSetupBanner = noneAnchored && modal === null
@@ -77,11 +96,21 @@ export default function App() {
   return (
     <div className="min-h-screen bg-alabaster font-sans overflow-x-hidden">
 
+      {/* Sync status bar */}
+      <SyncStatusBar />
+
+      {/* Processing overlay */}
+      <ProcessingOverlay
+        show={syncStatus === 'syncing' && isLoading}
+        message="Loading Minerva…"
+      />
+
       {/* Sync badge — top right, unobtrusive */}
       <SyncBadge
         status={syncStatus}
         lastSyncedAt={lastSyncedAt}
         onSignIn={signIn}
+        onSyncVault={syncDocuments}
       />
 
       {/* Modals */}

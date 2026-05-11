@@ -102,6 +102,19 @@ export const useMinervaStore = create(
   persist(
     (set, get) => ({
 
+      // ── Planned spends (what-if layer) ───────────────────────────────────
+      // Each item: { id, label, amount, currency, date, category }
+      // Added by user for one-off future purchases that affect the projection
+      plannedSpends: [],
+
+      // ── Period tracking ──────────────────────────────────────────────────
+      // initialBalance: the verified opening balance at the start of the period
+      // periodStart: 'YYYY-MM-DD' — transactions before this date are excluded
+      // Both are user-configurable from the Surplus Engine card
+      initialBalance: 0,          // set this to your real opening balance
+      initialBalanceCurrency: 'AED',
+      periodStart: new Date().toISOString().slice(0, 7) + '-01', // first of current month
+
       // ── Collections (seeded) ─────────────────────────────────────────────
       accounts:          ACCOUNTS_SEED,
       assets:            ASSETS_SEED,
@@ -121,6 +134,7 @@ export const useMinervaStore = create(
       // ── UI state ──────────────────────────────────────────────────────────
       activeCurrency: 'AED',
       activeTab:      'dashboard',
+      ownerFilter:    'all',   // 'all' | 'Kedar' | 'Anisha' | 'Family'
       fabOpen:        false,
       fabContext:     null,
       syncStatus:     'idle',
@@ -368,10 +382,14 @@ export const useMinervaStore = create(
       addDocument(doc) {
         set(s => ({
           documents: [...s.documents, {
-            id: genId('doc'), title: doc.title, category: doc.category ?? 'other',
-            linked_doc_uids: doc.linked_doc_uids ?? doc.linkedTo ?? [],
-            driveUrl: doc.driveUrl ?? '',
-            dateAdded: todayStr(), tags: doc.tags ?? [],
+            id:              genId('doc'),
+            title:           doc.title,
+            category:        doc.category         ?? 'other',
+            linked_doc_uids: doc.linked_doc_uids  ?? doc.linkedTo ?? [],
+            driveUrl:        doc.driveUrl          ?? '',
+            driveId:         doc.driveId           ?? null,
+            dateAdded:       doc.dateAdded         ?? todayStr(),
+            tags:            doc.tags              ?? [],
           }],
         }))
       },
@@ -669,6 +687,418 @@ export const useMinervaStore = create(
       },
 
 
+
+      // ── Owner filter selectors ─────────────────────────────────────────────
+      // Returns filtered arrays based on current ownerFilter state.
+      // Components must subscribe to BOTH the selector AND ownerFilter
+      // to ensure re-renders when filter changes.
+
+      selectFilteredAccounts() {
+        const { accounts, ownerFilter } = get()
+        if (!ownerFilter || ownerFilter === 'all') return accounts
+        if (ownerFilter === 'Family') return accounts.filter(a => a.owner === 'Family')
+        // Kedar or Anisha: show their own + Family
+        return accounts.filter(a => a.owner === ownerFilter || a.owner === 'Family')
+      },
+
+      selectFilteredAssets() {
+        const { assets, ownerFilter } = get()
+        if (!ownerFilter || ownerFilter === 'all') return assets
+        if (ownerFilter === 'Family') return assets.filter(a => a.owner === 'Family')
+        return assets.filter(a => a.owner === ownerFilter || a.owner === 'Family')
+      },
+
+      selectFilteredLiabilities() {
+        const { liabilities, ownerFilter } = get()
+        if (!ownerFilter || ownerFilter === 'all') return liabilities
+        if (ownerFilter === 'Family') return liabilities.filter(l => l.owner === 'Family')
+        return liabilities.filter(l => !l.owner || l.owner === ownerFilter || l.owner === 'Family')
+      },
+
+
+
+
+      // ── Deterministic 30-Day Projection ───────────────────────────────────
+      //
+      // FORMULA (deterministic, not historical average):
+      //   Start:     currentRunningBalance  (initialBalance + all transactions to date)
+      //   Income:    surplusConfig.income   (known monthly income, prorated daily)
+      //   Budget:    budgetCategories       (planned spending limits, remaining after actual spend)
+      //   PlannedSpends: user-entered one-off future purchases
+      //
+      // Returns:
+      //   currentBalance    — right now
+      //   projectedBalance  — in 30 days
+      //   expectedIncome    — total expected income in next 30 days
+      //   remainingBudget   — total budget not yet spent
+      //   plannedSpendTotal — sum of all planned one-off spends
+      //   netSurplus        — projectedBalance - currentBalance
+      //   dailySeries       — [{ day, date, balance }] for chart (30 points)
+      selectDeterministicProjection() {
+        const {
+          transactions, initialBalance, initialBalanceCurrency, periodStart,
+          surplusConfig, budgets, plannedSpends, fx
+        } = get()
+
+        const toAEDLocal = (amt, cur) => {
+          if (!amt) return 0
+          if (!cur || cur === 'AED') return amt
+          if (cur === 'USD') return amt * fx.USD_AED
+          if (cur === 'INR') return amt * fx.INR_AED
+          if (cur === 'SGD') return amt * fx.SGD_AED
+          return amt
+        }
+
+        const today     = new Date()
+        const todayStr  = today.toISOString().slice(0, 10)
+        const startStr  = periodStart ?? today.toISOString().slice(0, 7) + '-01'
+
+        // ── 1. Current running balance ───────────────────────────────────────
+        const startBalance = toAEDLocal(initialBalance, initialBalanceCurrency)
+        const netTxns = transactions
+          .filter(t => t.type !== 'reconciliation_adjustment' && t.date >= startStr && t.date <= todayStr)
+          .reduce((s, t) => s + toAEDLocal(t.amount, t.currency), 0)
+        const currentBalance = startBalance + netTxns
+
+        // ── 2. Expected income (next 30 days) ────────────────────────────────
+        const monthlyIncome = Object.values(surplusConfig.income)
+          .reduce((s, item) => s + toAEDLocal(item.amount, item.currency), 0)
+        const dailyIncome = monthlyIncome / 30
+        const expectedIncome = dailyIncome * 30  // full 30-day income
+
+        // ── 3. Remaining budget (limit minus already spent this month) ────────
+        const currentMonth = today.toISOString().slice(0, 7)
+        const budget = budgets.find(b => b.month === currentMonth) ?? budgets[budgets.length - 1]
+
+        // What's already been spent this month (AED, expenses only)
+        const spentByCategory = transactions
+          .filter(t => t.date.startsWith(currentMonth) && t.amount < 0 && t.type !== 'reconciliation_adjustment')
+          .reduce((acc, t) => {
+            acc[t.category] = (acc[t.category] ?? 0) + toAEDLocal(Math.abs(t.amount), t.currency)
+            return acc
+          }, {})
+
+        // Remaining budget = sum of (limit - spent) per category, floored at 0
+        const remainingBudget = Object.entries(budget?.categories ?? {}).reduce((s, [cat, meta]) => {
+          const limit = toAEDLocal(meta.limit, meta.currency ?? 'AED')
+          const spent = spentByCategory[cat] ?? 0
+          return s + Math.max(0, limit - spent)
+        }, 0)
+
+        // Fixed commitments not yet paid (mortgages etc)
+        const monthlyCommitments = Object.values(surplusConfig.commitments)
+          .reduce((s, item) => s + toAEDLocal(item.amount, item.currency), 0)
+
+        // ── 4. Planned one-off spends in next 30 days ─────────────────────────
+        const cutoff = new Date(today); cutoff.setDate(cutoff.getDate() + 30)
+        const cutoffStr = cutoff.toISOString().slice(0, 10)
+
+        const plannedSpendTotal = plannedSpends
+          .filter(p => p.date >= todayStr && p.date <= cutoffStr)
+          .reduce((s, p) => s + toAEDLocal(p.amount, p.currency), 0)
+
+        // ── 5. Projected balance = current + income - remainingBudget - commitments - planned ─
+        const projectedBalance = currentBalance + expectedIncome - remainingBudget - monthlyCommitments - plannedSpendTotal
+        const netSurplus = projectedBalance - currentBalance
+
+        // ── 6. Day-by-day series for chart ────────────────────────────────────
+        // Distribute budget and planned spends across the 30 days
+        const dailyBudget = remainingBudget / 30
+        const dailyCommitment = monthlyCommitments / 30
+
+        // Map planned spends to their dates
+        const plannedByDate = plannedSpends
+          .filter(p => p.date >= todayStr && p.date <= cutoffStr)
+          .reduce((acc, p) => {
+            acc[p.date] = (acc[p.date] ?? 0) + toAEDLocal(p.amount, p.currency)
+            return acc
+          }, {})
+
+        const dailySeries = []
+        let running = currentBalance
+
+        for (let d = 0; d < 30; d++) {
+          const date = new Date(today)
+          date.setDate(date.getDate() + d)
+          const dateStr = date.toISOString().slice(0, 10)
+
+          running += dailyIncome
+          running -= dailyBudget
+          running -= dailyCommitment
+          running -= (plannedByDate[dateStr] ?? 0)
+
+          dailySeries.push({
+            day:     d + 1,
+            date:    dateStr,
+            label:   d === 0 ? 'Today' : d === 29 ? '+30d' : d % 5 === 0 ? `+${d}d` : '',
+            balance: Math.round(running),
+          })
+        }
+
+        return {
+          currentBalance,
+          projectedBalance,
+          expectedIncome,
+          remainingBudget,
+          monthlyCommitments,
+          plannedSpendTotal,
+          netSurplus,
+          isPositive: netSurplus >= 0,
+          dailySeries,
+          dailyIncome,
+        }
+      },
+
+
+      // ── Capital Allocation — Waterline & Investable Surplus ───────────────
+      //
+      // baselineLiquidity = (avgMonthlyExpenses + mortgage) * 3
+      //   avgMonthlyExpenses = remainingBudget + monthlyCommitments (non-mortgage)
+      //   mortgage           = surplusConfig.commitments.adcb_mortgage
+      //
+      // investableSurplus  = currentBalance - baselineLiquidity
+      //   > 0 → "Ready to Invest" — capital above the safety net
+      //   < 0 → "Shortfall to Baseline" — not yet at safety net
+      //
+      // waterlineCrossDay  = day in the 30-day series where projected balance
+      //                      first crosses the waterline from below
+      //
+      // Recalculates dynamically whenever surplusConfig, budgets, or
+      // transactions change — all inputs are live store values.
+      selectCapitalAllocation() {
+        const { surplusConfig, budgets, transactions, fx } = get()
+        const projection = get().selectDeterministicProjection()
+
+        const toAEDLocal = (amt, cur) => {
+          if (!amt) return 0
+          if (!cur || cur === 'AED') return amt
+          if (cur === 'USD') return amt * fx.USD_AED
+          if (cur === 'INR') return amt * fx.INR_AED
+          if (cur === 'SGD') return amt * fx.SGD_AED
+          return amt
+        }
+
+        // ── Monthly expenses: budget limits + non-mortgage commitments ────────
+        const currentMonth = new Date().toISOString().slice(0, 7)
+        const budget = budgets.find(b => b.month === currentMonth) ?? budgets[budgets.length - 1]
+
+        const totalBudgetLimit = Object.values(budget?.categories ?? {}).reduce((s, meta) =>
+          s + toAEDLocal(meta.limit ?? 0, meta.currency ?? 'AED'), 0
+        )
+
+        // Mortgage specifically (anchor for waterline formula)
+        const mortgageAED = toAEDLocal(
+          surplusConfig.commitments.adcb_mortgage?.amount ?? 0,
+          surplusConfig.commitments.adcb_mortgage?.currency ?? 'AED'
+        )
+
+        // All other commitments (margin, HSBC etc)
+        const otherCommitmentsAED = Object.entries(surplusConfig.commitments)
+          .filter(([k]) => k !== 'adcb_mortgage')
+          .reduce((s, [, item]) => s + toAEDLocal(item.amount, item.currency), 0)
+
+        const avgMonthlyExpenses = totalBudgetLimit + otherCommitmentsAED
+
+        // ── Baseline: (avgMonthlyExpenses + mortgage) × 3 ────────────────────
+        const baselineLiquidity = (avgMonthlyExpenses + mortgageAED) * 3
+
+        // ── Investable surplus ────────────────────────────────────────────────
+        const { currentBalance, dailySeries } = projection
+        const investableSurplus = currentBalance - baselineLiquidity
+        const isAboveWaterline  = investableSurplus >= 0
+        const pctOfBaseline     = baselineLiquidity > 0
+          ? Math.min((currentBalance / baselineLiquidity) * 100, 200)
+          : 0
+
+        // ── Waterline crossing day ────────────────────────────────────────────
+        // Find the first day in the projection series where balance >= baseline
+        let waterlineCrossDay  = null
+        let waterlineCrossDate = null
+
+        if (!isAboveWaterline) {
+          for (const point of dailySeries) {
+            if (point.balance >= baselineLiquidity) {
+              waterlineCrossDay  = point.day
+              waterlineCrossDate = point.date
+              break
+            }
+          }
+        }
+
+        return {
+          baselineLiquidity,
+          investableSurplus,
+          isAboveWaterline,
+          pctOfBaseline,
+          waterlineCrossDay,
+          waterlineCrossDate,
+          avgMonthlyExpenses,
+          mortgageAED,
+          // Enriched daily series — each point tagged above/below waterline
+          enrichedSeries: dailySeries.map(p => ({
+            ...p,
+            aboveWaterline: p.balance >= baselineLiquidity ? p.balance : null,
+            belowWaterline: p.balance < baselineLiquidity  ? p.balance : null,
+          })),
+        }
+      },
+
+      // ── Monthly Average Surplus & Forward Projection ───────────────────────
+      // Looks back at ALL transactions (not just current period) to compute
+      // the true average monthly surplus across completed months.
+      //
+      // avgMonthlySurplus = SUM(income - expenses per month) / numMonths
+      // projected3M = currentBalance + (avgMonthlySurplus * 3)
+      // projected6M = currentBalance + (avgMonthlySurplus * 6)
+      selectSurplusProjection() {
+        const { transactions, initialBalance, initialBalanceCurrency, periodStart, fx } = get()
+
+        const toAEDLocal = (amt, cur) => {
+          if (!amt) return 0
+          if (!cur || cur === 'AED') return amt
+          if (cur === 'USD') return amt * fx.USD_AED
+          if (cur === 'INR') return amt * fx.INR_AED
+          if (cur === 'SGD') return amt * fx.SGD_AED
+          return amt
+        }
+
+        // Only real transactions — no adjustments
+        const realTxns = transactions.filter(t =>
+          t.type !== 'reconciliation_adjustment' && t.date >= (periodStart ?? '2026-01-01')
+        )
+
+        if (realTxns.length === 0) {
+          return {
+            avgMonthlySurplus: 0,
+            monthsOfData: 0,
+            projected3M: toAEDLocal(initialBalance, initialBalanceCurrency),
+            projected6M: toAEDLocal(initialBalance, initialBalanceCurrency),
+            currentBalance: toAEDLocal(initialBalance, initialBalanceCurrency),
+            hasData: false,
+          }
+        }
+
+        // Group by month
+        const byMonth = realTxns.reduce((acc, t) => {
+          const m = t.date.slice(0, 7)
+          if (!acc[m]) acc[m] = { income: 0, expenses: 0 }
+          const aed = toAEDLocal(t.amount, t.currency)
+          if (aed > 0) acc[m].income   += aed
+          else         acc[m].expenses += Math.abs(aed)
+          return acc
+        }, {})
+
+        const months = Object.keys(byMonth).sort()
+        const currentMonth = new Date().toISOString().slice(0, 7)
+
+        // Only use completed months for average (exclude current partial month)
+        const completedMonths = months.filter(m => m < currentMonth)
+        const numMonths = completedMonths.length || 1
+
+        const totalSurplus = completedMonths.reduce((s, m) =>
+          s + (byMonth[m].income - byMonth[m].expenses), 0
+        )
+        const avgMonthlySurplus = totalSurplus / numMonths
+
+        // Current running balance
+        const netChange = realTxns.reduce((s, t) =>
+          s + toAEDLocal(t.amount, t.currency), 0
+        )
+        const currentBalance = toAEDLocal(initialBalance, initialBalanceCurrency) + netChange
+
+        return {
+          avgMonthlySurplus,
+          monthsOfData: completedMonths.length,
+          projected3M: currentBalance + (avgMonthlySurplus * 3),
+          projected6M: currentBalance + (avgMonthlySurplus * 6),
+          currentBalance,
+          hasData: realTxns.length > 0,
+          byMonth,
+        }
+      },
+
+      // ── Historical ledger series for chart ─────────────────────────────────
+      // Returns an array of { date, balance } points — one per transaction date.
+      // Anchored to initialBalance. Used to draw the historical line on the chart.
+      selectLedgerSeries() {
+        const { transactions, initialBalance, initialBalanceCurrency, periodStart, fx } = get()
+
+        const toAEDLocal = (amt, cur) => {
+          if (!amt) return 0
+          if (!cur || cur === 'AED') return amt
+          if (cur === 'USD') return amt * fx.USD_AED
+          if (cur === 'INR') return amt * fx.INR_AED
+          if (cur === 'SGD') return amt * fx.SGD_AED
+          return amt
+        }
+
+        const startBalance = toAEDLocal(initialBalance, initialBalanceCurrency)
+        const start = periodStart ?? new Date().toISOString().slice(0, 7) + '-01'
+
+        // Sort all real transactions chronologically
+        const sorted = [...transactions]
+          .filter(t => t.type !== 'reconciliation_adjustment' && t.date >= start)
+          .sort((a, b) => a.date.localeCompare(b.date))
+
+        if (sorted.length === 0) return []
+
+        // Build day-level series
+        const byDate = sorted.reduce((acc, t) => {
+          const d = t.date
+          acc[d] = (acc[d] ?? 0) + toAEDLocal(t.amount, t.currency)
+          return acc
+        }, {})
+
+        let running = startBalance
+        const series = [{ date: start, balance: startBalance, isStart: true }]
+
+        Object.keys(byDate).sort().forEach(date => {
+          running += byDate[date]
+          series.push({ date, balance: running })
+        })
+
+        return series
+      },
+
+      // ── Period Running Balance ─────────────────────────────────────────────
+      // Iterates through all transactions from periodStart onwards.
+      // Returns: { currentBalance, totalIncome, totalExpenses, netChange, txnCount }
+      // All values in AED.
+      selectRunningBalance() {
+        const { transactions, initialBalance, initialBalanceCurrency, periodStart, fx } = get()
+
+        const startBalance = toAED(initialBalance, initialBalanceCurrency, fx)
+
+        // Filter to period transactions only (excluding adjustments)
+        const periodTxns = transactions.filter(t =>
+          t.date >= periodStart &&
+          t.type !== 'reconciliation_adjustment'
+        )
+
+        // Iterate to build running total
+        let totalIncome   = 0
+        let totalExpenses = 0
+
+        periodTxns.forEach(t => {
+          const amtAED = toAED(t.amount, t.currency, fx)
+          if (amtAED > 0) totalIncome   += amtAED
+          else            totalExpenses += Math.abs(amtAED)
+        })
+
+        const netChange      = totalIncome - totalExpenses
+        const currentBalance = startBalance + netChange
+
+        return {
+          initialBalance:  startBalance,
+          currentBalance,
+          totalIncome,
+          totalExpenses,
+          netChange,
+          txnCount: periodTxns.length,
+          isPositive: netChange >= 0,
+        }
+      },
+
       // ── Balance Sheet depth selectors ─────────────────────────────────────
 
       // Equity in a specific asset = valuation minus linked liability balance (AED)
@@ -713,8 +1143,32 @@ export const useMinervaStore = create(
       },
 
       // ── UI ─────────────────────────────────────────────────────────────────
+      setInitialBalance: (amount, currency = 'AED') =>
+        set({ initialBalance: amount, initialBalanceCurrency: currency }),
+      setPeriodStart: (date) => set({ periodStart: date }),
+
+      addPlannedSpend: (spend) => {
+        const item = {
+          id:       genId('plan'),
+          label:    spend.label    ?? 'Planned spend',
+          amount:   Math.abs(spend.amount),  // always positive, always a spend
+          currency: spend.currency ?? 'AED',
+          date:     spend.date     ?? todayStr(),
+          category: spend.category ?? 'other',
+          createdAt: nowISO(),
+        }
+        set(s => ({ plannedSpends: [...s.plannedSpends, item] }))
+        return item.id
+      },
+
+      removePlannedSpend: (id) => {
+        set(s => ({ plannedSpends: s.plannedSpends.filter(p => p.id !== id) }))
+      },
+
       setActiveCurrency: (c)   => set({ activeCurrency: c }),
       setActiveTab:      (t)   => set({ activeTab: t }),
+      setOwnerFilter:    (f)   => set({ ownerFilter: f }),
+
       openFAB:  (ctx = null)   => set({ fabOpen: true,  fabContext: ctx }),
       closeFAB: ()             => set({ fabOpen: false, fabContext: null }),
       setSyncStatus: (status)  => set({ syncStatus: status }),
@@ -728,13 +1182,13 @@ export const useMinervaStore = create(
 
     }),
     {
-      name:    'minerva-v2',
+      name:    'minerva-v3',
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({
         accounts: s.accounts, assets: s.assets, liabilities: s.liabilities,
         transactions: s.transactions, reconciliationLog: s.reconciliationLog,
         budgets: s.budgets, targets: s.targets, documents: s.documents,
-        fx: s.fx, surplusConfig: s.surplusConfig, activeCurrency: s.activeCurrency, lastSyncedAt: s.lastSyncedAt,
+        fx: s.fx, surplusConfig: s.surplusConfig, activeCurrency: s.activeCurrency, ownerFilter: s.ownerFilter, initialBalance: s.initialBalance, initialBalanceCurrency: s.initialBalanceCurrency, periodStart: s.periodStart, plannedSpends: s.plannedSpends, lastSyncedAt: s.lastSyncedAt,
         liveLiquidity: s.liveLiquidity, netWorth: s.netWorth,
       }),
       onRehydrateStorage: () => (state) => { if (state) state._recompute() },

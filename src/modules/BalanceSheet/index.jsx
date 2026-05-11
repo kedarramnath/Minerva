@@ -15,6 +15,7 @@ import { useMinervaStore }    from '../../state/store.js'
 import { fmt }                from '../../utils/currency.js'
 import { formatDate }         from '../../utils/dates.js'
 import { CurrencyToggle }     from '../../components/shared/CurrencyToggle.jsx'
+import { OwnerFilter }       from '../../components/shared/OwnerFilter.jsx'
 import { Pill }               from '../../components/shared/Card.jsx'
 
 const ASSET_TYPE_META = {
@@ -325,8 +326,17 @@ export function BalanceSheet() {
   const selectTotalLiabilitiesAED = useMinervaStore(s => s.selectTotalLiabilitiesAED)
   const selectNetWorthIn   = useMinervaStore(s => s.selectNetWorthIn)
   const selectNetWorthMoM  = useMinervaStore(s => s.selectNetWorthMoM)
-  const assets             = useMinervaStore(s => s.assets)
-  const liabilities        = useMinervaStore(s => s.liabilities)
+  const ownerFilter        = useMinervaStore(s => s.ownerFilter)
+  const _assets            = useMinervaStore(s => s.assets)
+  const _liabilities       = useMinervaStore(s => s.liabilities)
+
+  const filterByOwner = (items) => {
+    if (!ownerFilter || ownerFilter === 'all') return items
+    if (ownerFilter === 'Family') return items.filter(i => i.owner === 'Family')
+    return items.filter(i => i.owner === ownerFilter || i.owner === 'Family')
+  }
+  const assets      = filterByOwner(_assets)
+  const liabilities = filterByOwner(_liabilities)
 
   const [expandedType, setExpandedType]       = useState('property')
   const [valuationTarget, setValuationTarget] = useState(null) // asset being updated
@@ -347,9 +357,14 @@ export function BalanceSheet() {
 
       {/* Header */}
       <div className="bg-navy px-5 pt-12 pb-5">
-        <p className="text-[10px] font-mono text-white/40 uppercase tracking-widest mb-3">
+        <p className="text-[10px] font-mono text-white/40 uppercase tracking-widest mb-1">
           Balance Sheet
         </p>
+        {ownerFilter !== 'all' && (
+          <p className="text-[10px] font-mono mb-2" style={{color: '#CBD5E1'}}>
+            {ownerFilter === 'Family' ? 'Family / Joint' : ownerFilter}
+          </p>
+        )}
 
         {/* Three-column summary */}
         <div className="grid grid-cols-3 gap-2 mb-4">
@@ -376,7 +391,12 @@ export function BalanceSheet() {
           </div>
         )}
 
-        <CurrencyToggle />
+        <div className="mt-3">
+          <OwnerFilter />
+        </div>
+        <div className="mt-3">
+          <CurrencyToggle />
+        </div>
       </div>
 
       <div className="px-5 mt-5 space-y-5">
