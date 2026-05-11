@@ -165,7 +165,7 @@ export function parseWioCredit(csvText) {
     const f=parseCSVLine(rec); if(f.length<3) continue
     const first=f[0].trim()
     if(first==='opening_balance'){if(firstOpening===null)firstOpening=parseAmount(f[2]);continue}
-    if(first==='closing_balance'){lastClosing=parseAmount(f[2]);continue}
+    if(first==='closing_balance'){lastClosing=parseAmount((f[2]||'').split(/\s/)[0]);continue}
     const date=first.match(/^\d{4}-\d{2}-\d{2}/)?first.slice(0,10):null; if(!date) continue
     const amt=parseAmount(f[2]); if(amt===0) continue
     const amount=(f[4]||'').trim().toLowerCase()==='credit'?amt:-amt
@@ -200,24 +200,40 @@ export const ACCOUNT_NUMBER_MAP={
   'wio-cc-kedar':'wio-cc-kedar',
 }
 
-export function detectBank(text) {
-  const u=String(text).toUpperCase().slice(0,500)
-  if(u.includes('ADCB')||u.includes('ABU DHABI COMMERCIAL')||u.includes('13091504')||u.includes('POSTING DATE')) return 'ADCB'
-  if(u.includes('EMIRATES NBD')||u.includes('101XXXXXXXX')||u.includes('432114')) return 'ENBD'
-  if(u.includes('HSBC')) return 'HSBC'
-  if(u.includes('WIO')||u.includes('6692353112')||u.includes('AE090860')||u.includes('OPENING_BALANCE')) return 'Wio'
+export function detectBank(text, filename) {
+  const u = String(text).toUpperCase().slice(0, 500)
+  const fn = (filename || '').toUpperCase()
+
+  // Filename-based detection (most reliable for HSBC which has no header)
+  if (fn.includes('HSBC')) return 'HSBC'
+  if (fn.includes('WIO')) return 'Wio'
+  if (fn.includes('ADCB')) return 'ADCB'
+  if (fn.includes('NBD') || fn.includes('ENBD') || fn.includes('TRANSACTION')) return 'ENBD'
+
+  // Content-based detection
+  if (u.includes('ADCB') || u.includes('ABU DHABI COMMERCIAL') || u.includes('13091504') || u.includes('POSTING DATE')) return 'ADCB'
+  if (u.includes('EMIRATES NBD') || u.includes('101XXXXXXXX') || u.includes('432114')) return 'ENBD'
+  if (u.includes('HSBC')) return 'HSBC'
+  if (u.includes('WIO') || u.includes('6692353112') || u.includes('AE090860')) return 'Wio'
+
+  // Pattern-based: DD/MM/YYYY with signed amount and no header = HSBC
+  if (/^\d{2}\/\d{2}\/\d{4},/.test(text.trim())) return 'HSBC'
+
+  // opening_balance pattern = Wio Credit
+  if (text.trim().startsWith('opening_balance,')) return 'Wio'
+
   return null
 }
 
-export function parseStatement(csvText,bankOverride=null) {
-  const bank=bankOverride??detectBank(csvText)
-  const parser=PARSERS[bank]
-  if(!parser) return {error:'No parser for: '+(bank||'unknown')+'. Supported: ADCB, ENBD, HSBC, Wio.'}
+export function parseStatement(csvText, bankOverride=null, filename='') {
+  const bank = bankOverride ?? detectBank(csvText, filename)
+  const parser = PARSERS[bank]
+  if (!parser) return { error: 'No parser for: ' + (bank || 'unknown') + '. Supported: ADCB, ENBD, HSBC, Wio.' }
   return parser(csvText)
 }
 
-export function parseStatementRows(rows,bankOverride=null) {
-  const bank=bankOverride??detectBank(String(rows[0]?.[0]||''))
-  if(bank==='ENBD') return parseENBD(rows)
-  return {error:'No row-based parser for: '+(bank||'unknown')}
+export function parseStatementRows(rows, bankOverride=null, filename='') {
+  const bank = bankOverride ?? detectBank(String(rows[0]?.[0] || ''), filename)
+  if (bank === 'ENBD') return parseENBD(rows)
+  return { error: 'No row-based parser for: ' + (bank || 'unknown') }
 }

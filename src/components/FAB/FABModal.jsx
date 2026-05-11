@@ -32,14 +32,19 @@ function StatementImportModal({ onClose }) {
         const ws    = wb.Sheets[wb.SheetNames[0]]
         const rows  = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
 
-        const result = parseStatementRows(rows)
+        const result = parseStatementRows(rows, null, file.name)
         if (result.error) { setError(result.error); return }
 
-        // For ENBD current: try to match by bank
+        // Auto-match account
         let matchedId = ACCOUNT_NUMBER_MAP[result.accountNumber] ?? ''
         if (!matchedId && result.bankName === 'ENBD') {
-          if (result.accountType === 'credit_card') matchedId = 'enbd-cc-kedar'
-          else matchedId = 'enbd-current-kedar'
+          matchedId = result.accountType === 'credit_card' ? 'enbd-cc-kedar' : 'enbd-current-kedar'
+        }
+        if (!matchedId && result.bankName === 'HSBC') {
+          matchedId = result.accountType === 'credit_card' ? 'hsbc-cc-kedar' : 'hsbc-current-kedar'
+        }
+        if (!matchedId && result.bankName === 'Wio') {
+          matchedId = result.accountType === 'credit_card' ? 'wio-cc-kedar' : 'wio-current-kedar'
         }
         setAccountId(matchedId)
         setParsed(result)
