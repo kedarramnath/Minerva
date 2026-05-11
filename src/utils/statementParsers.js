@@ -191,7 +191,7 @@ export const ACCOUNT_NUMBER_MAP={
 
 export function detectBank(text) {
   const u=String(text).toUpperCase().slice(0,500)
-  if(u.includes('ADCB')||u.includes('ABU DHABI COMMERCIAL')) return 'ADCB'
+  if(u.includes('ADCB')||u.includes('ABU DHABI COMMERCIAL')||u.includes('13091504')||u.includes('POSTING DATE')) return 'ADCB'
   if(u.includes('EMIRATES NBD')||u.includes('101XXXXXXXX')||u.includes('432114')) return 'ENBD'
   if(u.includes('HSBC')) return 'HSBC'
   if(u.includes('WIO')||u.includes('6692353112')||u.includes('AE090860')||u.includes('OPENING_BALANCE')) return 'Wio'
