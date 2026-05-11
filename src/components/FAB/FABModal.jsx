@@ -10,8 +10,6 @@ import { CATEGORY_META } from '../../theme.js'
 function StatementImportModal({ onClose }) {
   const accounts       = useMinervaStore(s => s.accounts)
   const addTransaction = useMinervaStore(s => s.addTransaction)
-  const reconcile      = useMinervaStore(s => s.reconcile)
-  const updateAccount  = useMinervaStore(s => s.updateAccount)
 
   const [step, setStep]         = useState('upload')   // upload | preview | done
   const [parsed, setParsed]     = useState(null)
@@ -93,22 +91,17 @@ function StatementImportModal({ onClose }) {
       })
     })
 
-    // Update account reconciled balance with closing balance from statement
+    // Update account reconciled balance directly
     if (parsed.closingBalance !== null && parsed.closingBalance !== undefined) {
       const closingDate = parsed.period?.split(' to ')[1] ?? new Date().toISOString().slice(0, 10)
-      const month = closingDate.slice(0, 7)
-      try {
-        reconcile?.(accountId, parsed.closingBalance, month)
-      } catch(e) {
-        // Fallback: directly update account balance
-        const accounts = useMinervaStore.getState().accounts
-        const updated = accounts.map(a =>
+      const accounts = useMinervaStore.getState().accounts
+      useMinervaStore.setState({
+        accounts: accounts.map(a =>
           a.id === accountId
             ? { ...a, reconciledBalance: parsed.closingBalance, reconciledAt: closingDate }
             : a
         )
-        useMinervaStore.setState({ accounts: updated })
-      }
+      })
     }
 
     setStep('done')
