@@ -158,17 +158,13 @@ export function useDriveSync() {
 
   // ── Sign in ──────────────────────────────────────────────────────────────
   const signIn = useCallback(async () => {
-    if (!CLIENT_ID) {
-      console.warn('[Minerva] VITE_GOOGLE_CLIENT_ID not set — Drive sync disabled')
-      return false
-    }
     try {
       await loadGapi()
       const auth = window.gapi.auth2.getAuthInstance()
-      if (!auth.isSignedIn.get()) {
-        await auth.signIn({ prompt: 'select_account' })
-      }
+      // Always show account picker so user can confirm
+      await auth.signIn({ prompt: 'select_account' })
       isSignedInRef.current = true
+      console.log('[Minerva] Signed in to Google Drive')
       return true
     } catch (e) {
       console.error('[Minerva] Sign-in failed:', e)

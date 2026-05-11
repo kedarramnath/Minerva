@@ -42,14 +42,14 @@ function SyncBadge({ status, lastSyncedAt, onSignIn, onSyncVault }) {
     <div className="fixed top-4 right-4 z-20 flex items-center gap-1.5">
       <button
         onClick={onSyncVault}
-        className="text-[9px] font-mono px-2 py-1 bg-surface/80 backdrop-blur rounded-lg border border-border shadow-sm text-teal/80"
+        className="text-[9px] font-mono px-2 py-1 bg-surface/80 backdrop-blur rounded-lg border border-border shadow-sm text-teal/80 active:scale-95 transition-all"
         title="Sync Drive Documents to Vault"
       >
         🗂 Vault
       </button>
       <button
-        onClick={status === 'idle' ? undefined : onSignIn}
-        className={`text-[9px] font-mono px-2 py-1 bg-surface/80 backdrop-blur rounded-lg border border-border shadow-sm ${color}`}
+        onClick={onSignIn}
+        className={`text-[9px] font-mono px-2 py-1 bg-surface/80 backdrop-blur rounded-lg border border-border shadow-sm ${color} active:scale-95 transition-all`}
       >
         {label}
       </button>
