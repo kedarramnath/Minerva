@@ -9,8 +9,6 @@ import { CATEGORY_META } from '../../theme.js'
 // ── Statement Import Modal ────────────────────────────────────────────────────
 function StatementImportModal({ onClose }) {
   const accounts       = useMinervaStore(s => s.accounts)
-  const addTransaction = useMinervaStore(s => s.addTransaction)
-
   const [step, setStep]         = useState('upload')   // upload | preview | done
   const [parsed, setParsed]     = useState(null)
   const [accountId, setAccountId] = useState('')
@@ -76,20 +74,22 @@ function StatementImportModal({ onClose }) {
     setImporting(true)
 
     // Bulk import transactions
-    parsed.transactions.forEach(txn => {
-      addTransaction({
-        date:        txn.date,
-        accountId,
-        amount:      txn.amount,
-        currency:    txn.currency,
-        description: txn.description,
-        category:    categoriseTransaction(txn),
-        loggedBy:    'Import',
-        reference:   txn.reference,
-        type:        'imported',
-        status:      'imported',
-      })
-    })
+    // Bulk push directly to store transactions array
+    const newTxns = parsed.transactions.map((txn, i) => ({
+      id:          'imp_' + Date.now() + '_' + i,
+      date:        txn.date,
+      accountId,
+      amount:      txn.amount,
+      currency:    txn.currency,
+      description: txn.description,
+      category:    categoriseTransaction(txn),
+      loggedBy:    'Import',
+      reference:   txn.reference ?? '',
+      type:        'imported',
+      status:      'imported',
+      createdAt:   new Date().toISOString(),
+    }))
+    useMinervaStore.setState(s => ({ transactions: [...s.transactions, ...newTxns] }))
 
     // Update account reconciled balance directly
     if (parsed.closingBalance !== null && parsed.closingBalance !== undefined) {
@@ -270,8 +270,6 @@ function StatementImportModal({ onClose }) {
 function ReconcileModal({ onClose }) {
   const accounts          = useMinervaStore(s => s.accounts)
   const selectLiveBalance = useMinervaStore(s => s.selectLiveBalance)
-  const addTransaction    = useMinervaStore(s => s.addTransaction)
-
   const [accountId, setAccountId] = useState('')
   const [liveInput, setLiveInput] = useState('')
   const [step, setStep]           = useState('select') // select | input | confirm | done
@@ -287,7 +285,8 @@ function ReconcileModal({ onClose }) {
 
   const handlePost = () => {
     if (!matched) {
-      addTransaction({
+      const adjTxn = {
+        id:          'adj_' + Date.now(),
         date:        new Date().toISOString().slice(0, 10),
         accountId,
         amount:      diff,
@@ -297,7 +296,9 @@ function ReconcileModal({ onClose }) {
         type:        'reconciliation_adjustment',
         status:      'reconciled',
         loggedBy:    'Reconcile',
-      })
+        createdAt:   new Date().toISOString(),
+      }
+      useMinervaStore.setState(s => ({ transactions: [...s.transactions, adjTxn] }))
     }
     const accts = useMinervaStore.getState().accounts
     useMinervaStore.setState({
