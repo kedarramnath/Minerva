@@ -24,8 +24,6 @@ const SCREENS = {
 // ─── Sync status indicator ────────────────────────────────────────────────────
 
 function SyncBadge({ status, lastSyncedAt, onSignIn, onSyncVault }) {
-  if (!import.meta.env.VITE_GOOGLE_CLIENT_ID) return null
-
   const label = {
     idle:    '☁️ Synced',
     syncing: '↻ Syncing…',

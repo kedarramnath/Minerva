@@ -23,7 +23,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { useMinervaStore }                from '../state/store.js'
 
-const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? ''
+const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID ?? '518898336060-0o47asbhrmrdcegdou3s2k70bq1klvtn.apps.googleusercontent.com'
 const SCOPE     = 'https://www.googleapis.com/auth/drive.file'
 const FILE_NAME = 'minerva_data.json'
 const MIME      = 'application/json'
