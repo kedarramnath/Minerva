@@ -25,6 +25,16 @@ export function FAB() {
 
   return (
     <>
+      {/* Reconcile button — only on dashboard */}
+      {showImport && !fabOpen && (
+        <button
+          onClick={() => openFAB('reconcile')}
+          className="fixed bottom-24 right-36 z-50 h-14 px-3 rounded-2xl shadow-fab flex items-center gap-1.5 bg-sage text-white text-[11px] font-mono font-medium transition-all active:scale-95"
+        >
+          <span>⚖️</span> Reconcile
+        </button>
+      )}
+
       {/* Import Statement button — only on dashboard */}
       {showImport && !fabOpen && (
         <button
