@@ -164,13 +164,9 @@ export function useDriveFolderSync() {
 
       console.log('[Minerva] Scanning Drive Documents folder…')
 
-      // Find Documents subfolder
-      const docsFolderId = await findDocumentsFolder(token)
-      if (!docsFolderId) {
-        console.warn('[Minerva] Documents folder not found in Minerva Financials')
-        setSyncStatus('idle')
-        return
-      }
+      // Documents folder ID (hardcoded for reliability)
+      const docsFolderId = '1nhPr-Hh_5ASXflJOYRkizmgNTHlAlIXO'
+      console.log('[Minerva] Using Documents folder:', docsFolderId)
 
       // Scan all files recursively
       const files = await scanFolder(docsFolderId, token, { category: 'other', tags: [] })
