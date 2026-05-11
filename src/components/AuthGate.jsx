@@ -162,7 +162,7 @@ function LoginScreen({ onSignIn, error }) {
         Minerva Financial
       </p>
       <h1 className="text-2xl font-bold text-white mb-1 tracking-tight">
-        Ramnath · Joshi
+        Kedar · Anisha · Yuvi
       </h1>
       <p className="text-xs font-mono text-white/30 mb-12">
         Private Family Office
