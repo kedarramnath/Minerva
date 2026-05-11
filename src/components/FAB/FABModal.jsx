@@ -130,9 +130,12 @@ function StatementImportModal({ onClose }) {
 
   // Reconciliation check
   const reconCheck = parsed ? (() => {
-    const sum = parsed.transactions.reduce((s, t) => s + t.amount, 0)
-    const expected = parsed.openingBalance + sum
-    const diff = Math.abs(expected - parsed.closingBalance)
+    const sum      = parsed.transactions.reduce((s, t) => s + t.amount, 0)
+    const opening  = parsed.openingBalance ?? null
+    const closing  = parsed.closingBalance ?? null
+    if (opening === null || closing === null) return { sum, expected: null, diff: null, ok: null }
+    const expected = opening + sum
+    const diff     = Math.abs(expected - closing)
     return { sum, expected, diff, ok: diff < 0.1 }
   })() : null
 
@@ -148,12 +151,17 @@ function StatementImportModal({ onClose }) {
           {importSummary?.added ?? parsed.transactions.length} imported
           {importSummary?.skipped > 0 && ` · ${importSummary.skipped} duplicates skipped`}
         </p>
-        {reconCheck && (
+        {reconCheck && reconCheck.ok !== null && (
           <div className={`mt-4 px-4 py-2.5 rounded-xl text-xs font-mono ${reconCheck.ok ? 'bg-sage-lt text-sage' : 'bg-rose-lt text-rose'}`}>
             {reconCheck.ok
               ? '✓ Balances reconciled'
               : `⚠ Discrepancy: ${parsed.currency} ${reconCheck.diff.toFixed(2)}`
             }
+          </div>
+        )}
+        {reconCheck && reconCheck.ok === null && (
+          <div className="mt-4 px-4 py-2.5 rounded-xl text-xs font-mono bg-alabaster text-muted">
+            No opening/closing balance available for this statement type
           </div>
         )}
         <button onClick={() => {
@@ -182,21 +190,21 @@ function StatementImportModal({ onClose }) {
         <div className={`rounded-xl p-3 mb-4 ${reconCheck?.ok ? 'bg-sage-lt/50 border border-sage/20' : 'bg-rose-lt/50 border border-rose/20'}`}>
           <div className="flex justify-between text-[10px] font-mono mb-1">
             <span className="text-muted">Opening Balance</span>
-            <span className="text-slate">{parsed.currency} {parsed.openingBalance.toLocaleString()}</span>
+            <span className="text-slate">{parsed.currency} {(parsed.openingBalance ?? 0).toLocaleString()}</span>
           </div>
           <div className="flex justify-between text-[10px] font-mono mb-1">
             <span className="text-muted">Net Transactions ({parsed.transactions.length})</span>
             <span className={reconCheck?.sum >= 0 ? 'text-sage' : 'text-rose'}>
-              {reconCheck?.sum >= 0 ? '+' : ''}{parsed.currency} {reconCheck?.sum.toLocaleString()}
+              {reconCheck?.sum >= 0 ? '+' : ''}{parsed.currency} {(reconCheck?.sum ?? 0).toLocaleString()}
             </span>
           </div>
           <div className="flex justify-between text-[10px] font-mono mb-1 border-t border-black/8 pt-1">
             <span className="text-muted">Expected Closing</span>
-            <span className="text-slate">{parsed.currency} {reconCheck?.expected.toLocaleString()}</span>
+            <span className="text-slate">{parsed.currency} {(reconCheck?.expected ?? 0).toLocaleString()}</span>
           </div>
           <div className="flex justify-between text-[10px] font-mono font-bold">
             <span className="text-muted">Statement Closing</span>
-            <span className="text-slate">{parsed.currency} {parsed.closingBalance.toLocaleString()}</span>
+            <span className="text-slate">{parsed.currency} {(parsed.closingBalance ?? 0).toLocaleString()}</span>
           </div>
           <div className={`mt-2 text-center text-[10px] font-mono font-bold ${reconCheck?.ok ? 'text-sage' : 'text-rose'}`}>
             {reconCheck?.ok ? '✓ Balanced' : `⚠ Off by ${parsed.currency} ${reconCheck?.diff.toFixed(2)}`}
