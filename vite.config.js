@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  base: '/Minerva/',
   plugins: [
     react(),
     VitePWA({
@@ -16,11 +17,12 @@ export default defineConfig({
         background_color: '#F8F9FA',
         display: 'standalone',
         orientation: 'portrait',
-        scope: '/',
-        start_url: '/',
+        scope: '/Minerva/',
+        start_url: '/Minerva/',
         icons: [
           { src: 'icons/ka-192.png', sizes: '192x192', type: 'image/png' },
-          { src: 'icons/ka-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
+          { src: 'icons/ka-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+          { src: 'icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }
         ]
       },
       workbox: {
