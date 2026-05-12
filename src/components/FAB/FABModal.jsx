@@ -45,7 +45,8 @@ function Sheet({ title, subtitle, onClose, onSubmit, submitLabel, children }) {
 // ─── Statement Import Modal ───────────────────────────────────────────────────
 
 function StatementImportModal({ onClose }) {
-  const accounts = useMinervaStore(s => s.accounts)
+  const accounts             = useMinervaStore(s => s.accounts)
+  const bulkAddTransactions  = useMinervaStore(s => s.bulkAddTransactions)
 
   const [step, setStep]               = useState('upload')
   const [parsed, setParsed]           = useState(null)
@@ -145,8 +146,8 @@ function StatementImportModal({ onClose }) {
 
     const skipped = parsed.transactions.length - newTxns.length
 
-    // Push to store
-    useMinervaStore.setState(s => ({ transactions: [...s.transactions, ...newTxns] }))
+    // Push to store via persisted action
+    bulkAddTransactions(newTxns)
 
     // Update account reconciled balance
     if (parsed.closingBalance != null) {
@@ -188,7 +189,7 @@ function StatementImportModal({ onClose }) {
         )}
         <button
           onClick={() => { const txns = useMinervaStore.getState().transactions; useMinervaStore.setState({ transactions: recategoriseAll(txns) }) }}
-          className="mt-3 w-full py-3 border border-border rounded-2xl text-xs font-mono text-muted">
+          className="mt-3 w-full py-3 border border-border rounded-2xl text-xs font-mono text-muted active:bg-alabaster active:scale-[0.98] transition-all cursor-pointer">
           ↺ Re-categorise all transactions
         </button>
         <button onClick={onClose} className="mt-3 w-full py-3.5 bg-navy text-white rounded-2xl text-sm font-semibold">Done</button>

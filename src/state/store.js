@@ -1177,6 +1177,12 @@ export const useMinervaStore = create(
       // ── Drive sync stubs ───────────────────────────────────────────────────
       // Drive sync — delegated to useDriveSync hook in App.jsx
       // These stubs remain for backward compatibility; the hook calls gapi directly
+      // Bulk import transactions — guaranteed to trigger persist
+      bulkAddTransactions(newTxns) {
+        set(s => ({ transactions: [...s.transactions, ...newTxns] }))
+        get()._recompute()
+      },
+
       syncToDrive:    async () => { console.log('[Minerva] syncToDrive: use useDriveSync hook') },
       loadFromDrive:  async () => { console.log('[Minerva] loadFromDrive: use useDriveSync hook') },
 
