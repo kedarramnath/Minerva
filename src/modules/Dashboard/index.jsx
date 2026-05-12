@@ -77,7 +77,7 @@ function FCNRBanner() {
   )
 }
 
-/** Cash by country — reconciled base + live drift per liquid account */
+/** Accounts by country — cash left col, credit card right col, grouped by institution */
 const COUNTRY_ORDER = ['UAE', 'India', 'USA', 'Singapore']
 
 function CashByCountry() {
@@ -93,15 +93,6 @@ function CashByCountry() {
   const selectInDisplay   = useMinervaStore(s => s.selectInDisplayCurrency)
   const fx                = useMinervaStore(s => s.fx)
 
-  // Group liquid accounts by country
-  const grouped = accounts
-    .filter(a => a.active && ['current', 'savings'].includes(a.type))
-    .reduce((g, a) => {
-      if (!g[a.country]) g[a.country] = []
-      g[a.country].push(a)
-      return g
-    }, {})
-
   const toAED = (amount, currency) => {
     if (currency === 'AED') return amount
     if (currency === 'USD') return amount * fx.USD_AED
@@ -110,68 +101,120 @@ function CashByCountry() {
     return amount
   }
 
-  const liquidAccounts = accounts.filter(a => a.active && ['current', 'savings'].includes(a.type))
+  // Group ALL active accounts by country then by institution
+  const byCountry = accounts
+    .filter(a => a.active)
+    .reduce((g, a) => {
+      const country = a.country || 'Other'
+      if (!g[country]) g[country] = {}
+      const inst = a.institution || a.shortName || 'Other'
+      if (!g[country][inst]) g[country][inst] = { cash: [], cards: [] }
+      if (a.type === 'credit_card') g[country][inst].cards.push(a)
+      else g[country][inst].cash.push(a)
+      return g
+    }, {})
+
   const ownerLabel = ownerFilter === 'all' ? '' : ownerFilter === 'Family' ? 'Family · ' : `${ownerFilter} · `
+
+  // Country totals (cash only)
+  const countryTotal = (country) => {
+    const insts = byCountry[country] || {}
+    return Object.values(insts).reduce((sum, { cash }) =>
+      sum + cash.reduce((s, a) => s + toAED(selectLiveBalance(a.id), a.currency), 0), 0)
+  }
 
   return (
     <div className="px-5 mt-6">
       <p className="text-[11px] font-mono text-muted uppercase tracking-widest mb-3">
-        {ownerLabel}Cash by Country
+        {ownerLabel}Accounts
       </p>
-      {liquidAccounts.length === 0 && (
-        <div className="bg-surface rounded-2xl border border-border px-4 py-6 text-center">
-          <p className="text-xs text-muted">No liquid accounts for this filter.</p>
-        </div>
-      )}
       <div className="space-y-2">
         {COUNTRY_ORDER.map(country => {
-          const accts = grouped[country]
-          if (!accts?.length) return null
-
-          const totalAED = accts.reduce((sum, a) => {
-            return sum + toAED(selectLiveBalance(a.id), a.currency)
-          }, 0)
-          const display = selectInDisplay(totalAED)
+          const insts = byCountry[country]
+          if (!insts || !Object.keys(insts).length) return null
+          const total = countryTotal(country)
 
           return (
             <div key={country} className="bg-surface rounded-2xl border border-border overflow-hidden">
-              {/* Country header row */}
-              <div className="flex items-center justify-between px-4 py-3 border-b border-border/60">
-                <div className="flex items-center gap-2.5">
-                  <span className="text-base leading-none">{COUNTRY_FLAGS[country]}</span>
-                  <span className="text-sm font-semibold text-navy">{country}</span>
+              {/* Country header */}
+              <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/60 bg-alabaster/50">
+                <div className="flex items-center gap-2">
+                  <span>{COUNTRY_FLAGS[country]}</span>
+                  <span className="text-xs font-semibold text-navy">{country}</span>
                 </div>
-                <span className="text-sm font-mono font-semibold text-slate tabular-nums">
-                  {fmt(display, activeCurrency)}
+                <span className="text-xs font-mono font-semibold text-slate tabular-nums">
+                  {fmt(selectInDisplay(total), activeCurrency)}
                 </span>
               </div>
 
-              {/* Per-account rows */}
-              {accts.map((acct, i) => {
-                const bal      = selectLiveBalance(acct.id)
-                const balDisp  = selectInDisplay(toAED(bal, acct.currency))
-                const isNeg    = bal < 0
-                const isPending = acct.reconciledBalance === 0 && !acct.reconciledDate
+              {/* Column headers */}
+              <div className="grid grid-cols-2 border-b border-border/40">
+                <div className="px-4 py-1.5 border-r border-border/40">
+                  <span className="text-[9px] font-mono text-muted uppercase tracking-wide">Cash / Savings</span>
+                </div>
+                <div className="px-4 py-1.5">
+                  <span className="text-[9px] font-mono text-muted uppercase tracking-wide">Credit Card</span>
+                </div>
+              </div>
+
+              {/* Per-institution rows */}
+              {Object.entries(insts).map(([inst, { cash, cards }], i, arr) => {
+                const hasContent = cash.length > 0 || cards.length > 0
+                if (!hasContent) return null
+                const isLast = i === arr.length - 1
 
                 return (
-                  <div
-                    key={acct.id}
-                    onClick={() => setReconcileAcct(acct)}
-                    className={`flex items-center justify-between px-4 py-2.5 cursor-pointer active:bg-alabaster transition-colors ${i < accts.length - 1 ? 'border-b border-border/40' : ''}`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      {/* Reconciled indicator dot */}
-                      <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                        acct.reconciledDate ? 'bg-sage' : 'bg-amber'
-                      }`} />
-                      <span className="text-xs text-slate">{acct.shortName}</span>
-                      <span className="text-[10px] font-mono text-muted/70">{acct.currency}</span>
+                  <div key={inst} className={`grid grid-cols-2 ${!isLast ? 'border-b border-border/40' : ''}`}>
+                    {/* Cash column */}
+                    <div className="border-r border-border/40">
+                      {cash.length === 0 ? (
+                        <div className="px-4 py-2.5 flex items-center">
+                          <span className="text-[10px] font-mono text-muted/40">—</span>
+                        </div>
+                      ) : cash.map((acct, j) => {
+                        const bal     = selectLiveBalance(acct.id)
+                        const disp    = selectInDisplay(toAED(bal, acct.currency))
+                        const hasData = !!acct.reconciledAt
+                        return (
+                          <button key={acct.id} onClick={() => setReconcileAcct(acct)}
+                            className={`w-full flex items-center justify-between px-4 py-2.5 active:bg-alabaster text-left ${j < cash.length-1 ? 'border-b border-border/30' : ''}`}>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${hasData ? 'bg-sage' : 'bg-amber'}`} />
+                              <span className="text-[10px] text-slate truncate">{acct.shortName}</span>
+                            </div>
+                            <span className={`text-[10px] font-mono tabular-nums flex-shrink-0 ml-1 ${bal < 0 ? 'text-rose' : hasData ? 'text-slate' : 'text-muted'}`}>
+                              {hasData ? fmt(disp, activeCurrency) : '—'}
+                            </span>
+                          </button>
+                        )
+                      })}
                     </div>
-                    <span className={`text-xs font-mono tabular-nums ${
-                      isPending ? 'text-muted' : isNeg ? 'text-rose' : 'text-slate'
-                    }`}>
-                      {isPending ? '—' : fmt(balDisp, activeCurrency)}
-                    </span>
+
+                    {/* Credit card column */}
+                    <div>
+                      {cards.length === 0 ? (
+                        <div className="px-4 py-2.5 flex items-center">
+                          <span className="text-[10px] font-mono text-muted/40">—</span>
+                        </div>
+                      ) : cards.map((acct, j) => {
+                        const bal     = selectLiveBalance(acct.id)
+                        const owed    = Math.abs(Math.min(0, bal))
+                        const disp    = selectInDisplay(toAED(owed, acct.currency))
+                        const hasData = !!acct.reconciledAt
+                        return (
+                          <button key={acct.id} onClick={() => setReconcileAcct(acct)}
+                            className={`w-full flex items-center justify-between px-4 py-2.5 active:bg-alabaster text-left ${j < cards.length-1 ? 'border-b border-border/30' : ''}`}>
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${hasData ? 'bg-sage' : 'bg-amber'}`} />
+                              <span className="text-[10px] text-slate truncate">{acct.shortName}</span>
+                            </div>
+                            <span className={`text-[10px] font-mono tabular-nums flex-shrink-0 ml-1 ${owed > 0 ? 'text-rose' : 'text-muted'}`}>
+                              {hasData ? (owed > 0 ? `-${fmt(disp, activeCurrency)}` : '—') : '—'}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
                   </div>
                 )
               })}
@@ -184,11 +227,11 @@ function CashByCountry() {
       <div className="flex items-center gap-4 mt-3 px-1">
         <div className="flex items-center gap-1.5">
           <div className="w-1.5 h-1.5 rounded-full bg-sage" />
-          <span className="text-[10px] font-mono text-muted">Reconciled</span>
+          <span className="text-[10px] font-mono text-muted">Data loaded</span>
         </div>
         <div className="flex items-center gap-1.5">
           <div className="w-1.5 h-1.5 rounded-full bg-amber" />
-          <span className="text-[10px] font-mono text-muted">Awaiting reconciliation</span>
+          <span className="text-[10px] font-mono text-muted">No data yet</span>
         </div>
       </div>
     </div>
@@ -1060,7 +1103,6 @@ export function Dashboard({ onOpenReconcile }) {
           <SurplusProjection />
           <FCNRBanner />
           <ReconcileBar onOpenOpening={openReconcile} onOpenReconcile={openReconcile} />
-          <CreditCardSummary onTapAccount={setReconcileAcct} />
         <ImportStatus />
         <ReconciliationStatus />
           <CashByCountry />
