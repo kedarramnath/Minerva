@@ -15,8 +15,9 @@ export const ACCOUNTS_SEED = [
   // ── UAE — KEDAR ────────────────────────────────────────────────────────
   {
     id: 'adcb-consolidated-kedar',
-    name: 'ADCB Current — 13091504920001',
-    shortName: 'ADCB AED',
+    name: 'ADCB Current AED',
+    shortName: 'ADCB Current',
+    accountNumber: '13091504920001',
     accountNumber: '13091504920001',
     owner: 'Kedar',
     type: 'current',
@@ -159,8 +160,9 @@ export const ACCOUNTS_SEED = [
 
   {
     id: 'adcb-usd-savings',
-    name: 'ADCB USD Savings — 13091504910001',
-    shortName: 'ADCB USD',
+    name: 'ADCB Saver USD',
+    shortName: 'ADCB Saver',
+    accountNumber: '13091504910001',
     accountNumber: '13091504910001',
     owner: 'Kedar',
     type: 'savings',
