@@ -200,7 +200,21 @@ export function useDriveSync() {
 
   // ── Subscribe to store mutations ───────────────────────────────────────────
   useEffect(() => {
-    const unsub = useMinervaStore.subscribe(() => scheduleSave())
+    // Only save when actual financial data changes — not UI state
+    const unsub = useMinervaStore.subscribe(
+      (state) => ({
+        transactions:      state.transactions,
+        accounts:          state.accounts,
+        assets:            state.assets,
+        liabilities:       state.liabilities,
+        documents:         state.documents,
+        budgets:           state.budgets,
+        targets:           state.targets,
+        surplusConfig:     state.surplusConfig,
+        plannedSpends:     state.plannedSpends,
+      }),
+      () => scheduleSave()
+    )
     return () => { unsub(); clearTimeout(debounceRef.current) }
   }, [scheduleSave])
 

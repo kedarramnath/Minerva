@@ -24,8 +24,10 @@ const SCREENS = {
 // ─── Sync status indicator ────────────────────────────────────────────────────
 
 function SyncBadge({ status, onSyncVault }) {
-  const color = { idle: 'text-sage/80', syncing: 'text-blue/80', error: 'text-rose/80' }[status] ?? 'text-muted'
-  const label = { idle: '☁️', syncing: '↻', error: '⚠️' }[status] ?? '○'
+  // Only show sync status when syncing or error — hide when idle to avoid distraction
+  const showStatus = status === 'syncing' || status === 'error'
+  const color = { syncing: 'text-blue/80', error: 'text-rose/80' }[status] ?? 'text-muted'
+  const label = { syncing: '↻ Syncing…', error: '⚠️ Sync error' }[status] ?? ''
 
   return (
     <div className="fixed top-4 right-4 z-20 flex items-center gap-1.5">
@@ -35,9 +37,11 @@ function SyncBadge({ status, onSyncVault }) {
       >
         🗂 Vault
       </button>
-      <span className={`text-[9px] font-mono px-2 py-1 bg-surface/80 backdrop-blur rounded-lg border border-border shadow-sm ${color}`}>
-        {label}
-      </span>
+      {showStatus && (
+        <span className={`text-[9px] font-mono px-2 py-1 bg-surface/80 backdrop-blur rounded-lg border border-border shadow-sm ${color}`}>
+          {label}
+        </span>
+      )}
     </div>
   )
 }
