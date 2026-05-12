@@ -25,24 +25,22 @@ export function FAB() {
 
   return (
     <>
-      {/* Reconcile button — only on dashboard */}
+      {/* Import + Reconcile — stacked vertically above + FAB */}
       {showImport && !fabOpen && (
-        <button
-          onClick={() => openFAB('reconcile')}
-          className="fixed bottom-24 right-36 z-50 h-14 px-3 rounded-2xl shadow-fab flex items-center gap-1.5 bg-sage text-white text-[11px] font-mono font-medium transition-all active:scale-95"
-        >
-          <span>⚖️</span> Reconcile
-        </button>
-      )}
-
-      {/* Import Statement button — only on dashboard */}
-      {showImport && !fabOpen && (
-        <button
-          onClick={() => openFAB('import')}
-          className="fixed bottom-24 right-20 z-50 h-14 px-3 rounded-2xl shadow-fab flex items-center gap-1.5 bg-teal text-white text-[11px] font-mono font-medium transition-all active:scale-95"
-        >
-          <span>📂</span> Import
-        </button>
+        <div className="fixed bottom-24 right-4 z-50 flex flex-col items-end gap-2">
+          <button
+            onClick={() => openFAB('reconcile')}
+            className="h-10 px-4 rounded-xl shadow-fab flex items-center gap-1.5 bg-sage text-white text-[11px] font-mono font-medium transition-all active:scale-95"
+          >
+            <span>⚖️</span> Reconcile
+          </button>
+          <button
+            onClick={() => openFAB('import')}
+            className="h-10 px-4 rounded-xl shadow-fab flex items-center gap-1.5 bg-teal text-white text-[11px] font-mono font-medium transition-all active:scale-95"
+          >
+            <span>📂</span> Import
+          </button>
+        </div>
       )}
 
       {/* FAB Button */}
