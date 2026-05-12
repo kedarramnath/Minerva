@@ -1,85 +1,81 @@
-// src/components/FAB/FAB.jsx
 import { useState } from 'react'
 import { X, Plus } from 'lucide-react'
 import { useMinervaStore } from '../../state/store.js'
 import { FABModal } from './FABModal.jsx'
 
-export function FAB() {
-  const activeTab   = useMinervaStore(s => s.activeTab)
-  const fabOpen     = useMinervaStore(s => s.fabOpen)
-  const openFAB     = useMinervaStore(s => s.openFAB)
-  const closeFAB    = useMinervaStore(s => s.closeFAB)
-  const fabContext   = useMinervaStore(s => s.fabContext)
+const FAB_CONTEXTS = {
+  dashboard: { color: 'bg-navy', label: 'Log Transaction' },
+  balancesheet: { color: 'bg-teal', label: 'Update Valuation' },
+  budgets: { color: 'bg-amber', label: 'Set Budget' },
+  planning: { color: 'bg-sage', label: 'Add Milestone' },
+  documents: { color: 'bg-blue', label: 'Add Document' },
+}
 
-  const TAB_CONTEXT = {
-    dashboard:    { label: 'Log Transaction', color: 'bg-navy' },
-    balancesheet: { label: 'Update Valuation', color: 'bg-sage' },
-    budgets:      { label: 'Adjust Budget',   color: 'bg-amber' },
-    planning:     { label: 'Log Milestone',   color: 'bg-teal' },
-    documents:    { label: 'Add Document',    color: 'bg-blue'  },
+export function FAB() {
+  const activeTab  = useMinervaStore(s => s.activeTab)
+  const fabOpen    = useMinervaStore(s => s.fabOpen)
+  const fabContext = useMinervaStore(s => s.fabContext)
+  const openFAB    = useMinervaStore(s => s.openFAB)
+  const closeFAB   = useMinervaStore(s => s.closeFAB)
+
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  const ctx = FAB_CONTEXTS[activeTab] ?? FAB_CONTEXTS.dashboard
+
+  const handleFABTap = () => {
+    if (fabOpen) { closeFAB(); setMenuOpen(false); return }
+    if (activeTab === 'dashboard') {
+      setMenuOpen(m => !m)
+    } else {
+      openFAB(activeTab)
+    }
   }
 
-  const ctx = TAB_CONTEXT[activeTab] || TAB_CONTEXT.dashboard
-
-  const showImport = activeTab === 'dashboard'
+  const handleOption = (context) => {
+    setMenuOpen(false)
+    openFAB(context)
+  }
 
   return (
     <>
-      {/* Import + Reconcile — stacked vertically above + FAB */}
-      {showImport && !fabOpen && (
-        <div className="fixed bottom-24 right-4 z-50 flex flex-col items-end gap-2">
-          <button
-            onClick={() => openFAB('reconcile')}
-            className="h-10 px-4 rounded-xl shadow-fab flex items-center gap-1.5 bg-sage text-white text-[11px] font-mono font-medium transition-all active:scale-95"
-          >
+      {/* Backdrop for menu */}
+      {menuOpen && (
+        <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+      )}
+
+      {/* Expanded menu options */}
+      {menuOpen && (
+        <div className="fixed bottom-28 right-4 z-50 flex flex-col items-end gap-2">
+          <button onClick={() => handleOption('reconcile')}
+            className="flex items-center gap-2 bg-sage text-white text-xs font-mono font-medium px-4 py-2.5 rounded-2xl shadow-lg active:scale-95 transition-all whitespace-nowrap">
             <span>⚖️</span> Reconcile
           </button>
-          <button
-            onClick={() => openFAB('import')}
-            className="h-10 px-4 rounded-xl shadow-fab flex items-center gap-1.5 bg-teal text-white text-[11px] font-mono font-medium transition-all active:scale-95"
-          >
-            <span>📂</span> Import
+          <button onClick={() => handleOption('import')}
+            className="flex items-center gap-2 bg-teal text-white text-xs font-mono font-medium px-4 py-2.5 rounded-2xl shadow-lg active:scale-95 transition-all whitespace-nowrap">
+            <span>📂</span> Import Statement
+          </button>
+          <button onClick={() => handleOption('dashboard')}
+            className="flex items-center gap-2 bg-navy text-white text-xs font-mono font-medium px-4 py-2.5 rounded-2xl shadow-lg active:scale-95 transition-all whitespace-nowrap">
+            <span>✏️</span> Log Transaction
           </button>
         </div>
       )}
 
-      {/* FAB Button */}
+      {/* Main FAB */}
       <button
-        onClick={() => fabOpen ? closeFAB() : openFAB(activeTab)}
-        className={`
-          fixed bottom-24 right-4 z-50
-          w-14 h-14 rounded-2xl shadow-fab
-          flex items-center justify-center
-          transition-all duration-200 active:scale-95
-          ${ctx.color} text-white
-        `}
-        aria-label={ctx.label}
+        onClick={handleFABTap}
+        className={`fixed bottom-24 right-4 z-50 w-14 h-14 rounded-2xl shadow-fab flex items-center justify-center transition-all duration-200 active:scale-95 ${ctx.color} text-white`}
       >
         {fabOpen
           ? <X size={22} strokeWidth={2.5} />
-          : <Plus size={24} strokeWidth={2.5} />
+          : menuOpen
+            ? <X size={22} strokeWidth={2.5} />
+            : <Plus size={24} strokeWidth={2.5} />
         }
       </button>
 
-      {/* Context label that appears on long-press area */}
-      {!fabOpen && (
-        <div className="fixed bottom-[104px] right-[72px] z-40 pointer-events-none">
-          <span className="text-[10px] font-mono text-muted bg-surface border border-border rounded-lg px-2 py-1 shadow-sm whitespace-nowrap opacity-0">
-            {ctx.label}
-          </span>
-        </div>
-      )}
-
-      {/* Backdrop */}
-      {fabOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-navy/30 backdrop-blur-sm"
-          onClick={closeFAB}
-        />
-      )}
-
-      {/* Adaptive Modal */}
-      {fabOpen && <FABModal context={fabContext || activeTab} onClose={closeFAB} />}
+      {/* Modal */}
+      {fabOpen && <FABModal context={fabContext || activeTab} onClose={() => { closeFAB(); setMenuOpen(false) }} />}
     </>
   )
 }
