@@ -1188,7 +1188,7 @@ export const useMinervaStore = create(
 
     }),
     {
-      name:    'minerva-v3',
+      name:    'minerva-v4',
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({
         accounts: s.accounts, assets: s.assets, liabilities: s.liabilities,

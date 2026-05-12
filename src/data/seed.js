@@ -163,7 +163,6 @@ export const ACCOUNTS_SEED = [
     name: 'ADCB Saver USD',
     shortName: 'ADCB Saver',
     accountNumber: '13091504910001',
-    accountNumber: '13091504910001',
     owner: 'Kedar',
     type: 'savings',
     currency: 'USD',
