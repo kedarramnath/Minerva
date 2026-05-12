@@ -1,6 +1,6 @@
 // src/hooks/useDriveSync.js
-// Google Drive sync using OAuth2 implicit flow (no popup, no gapi)
-// Works reliably on GitHub Pages
+// Google Drive sync — SAVE ONLY on mount, never auto-load
+// Auto-load disabled to prevent overwriting locally imported data
 
 import { useEffect, useCallback, useRef } from 'react'
 import { useMinervaStore }                from '../state/store.js'
@@ -8,17 +8,14 @@ import { useMinervaStore }                from '../state/store.js'
 const CLIENT_ID   = '518898336060-0o47asbhrmrdcegdou3s2k70bq1klvtn.apps.googleusercontent.com'
 const SCOPE       = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file'
 const FILE_NAME   = 'minerva_data.json'
-const DEBOUNCE_MS = 3000
+const DEBOUNCE_MS = 5000
 const REDIRECT_URI = window.location.origin + window.location.pathname
-
-// ─── Token management ─────────────────────────────────────────────────────────
 
 function getStoredToken() {
   try {
     const t = localStorage.getItem('minerva_drive_token')
     if (!t) return null
     const parsed = JSON.parse(t)
-    // Check expiry
     if (Date.now() > parsed.expires_at) {
       localStorage.removeItem('minerva_drive_token')
       return null
@@ -30,7 +27,7 @@ function getStoredToken() {
 function storeToken(accessToken, expiresIn) {
   localStorage.setItem('minerva_drive_token', JSON.stringify({
     access_token: accessToken,
-    expires_at:   Date.now() + (expiresIn * 1000) - 60000, // 1 min buffer
+    expires_at:   Date.now() + (expiresIn * 1000) - 60000,
   }))
 }
 
@@ -38,7 +35,6 @@ function clearToken() {
   localStorage.removeItem('minerva_drive_token')
 }
 
-// Parse token from URL hash after OAuth redirect
 function parseTokenFromHash() {
   const hash = window.location.hash.substring(1)
   if (!hash) return null
@@ -47,12 +43,9 @@ function parseTokenFromHash() {
   const expiry = params.get('expires_in')
   if (!token) return null
   storeToken(token, parseInt(expiry) || 3600)
-  // Clean up URL
   window.history.replaceState({}, document.title, window.location.pathname)
   return token
 }
-
-// ─── Drive API ────────────────────────────────────────────────────────────────
 
 async function driveGet(path, token) {
   const res = await fetch(`https://www.googleapis.com/drive/v3/${path}`, {
@@ -67,14 +60,6 @@ async function findFile(token) {
   const q   = encodeURIComponent(`name='${FILE_NAME}' and trashed=false`)
   const data = await driveGet(`files?q=${q}&fields=files(id,modifiedTime)`, token)
   return data?.files?.[0] ?? null
-}
-
-async function readFile(fileId, token) {
-  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-    headers: { Authorization: `Bearer ${token}` }
-  })
-  if (!res.ok) return null
-  return res.json()
 }
 
 async function writeFile(fileId, data, token) {
@@ -98,18 +83,16 @@ async function writeFile(fileId, data, token) {
   }
 }
 
-// ─── HOOK ─────────────────────────────────────────────────────────────────────
-
 export function useDriveSync() {
   const setSyncStatus = useMinervaStore(s => s.setSyncStatus)
   const setLastSynced = useMinervaStore(s => s.setLastSynced)
   const syncStatus    = useMinervaStore(s => s.syncStatus)
 
-  const fileIdRef     = useRef(null)
-  const tokenRef      = useRef(getStoredToken())
-  const debounceRef   = useRef(null)
+  const fileIdRef   = useRef(null)
+  const tokenRef    = useRef(getStoredToken())
+  const debounceRef = useRef(null)
 
-  // ── Sign in via OAuth redirect ─────────────────────────────────────────────
+  // Sign in via OAuth redirect
   const signIn = useCallback(() => {
     const params = new URLSearchParams({
       client_id:     CLIENT_ID,
@@ -123,46 +106,12 @@ export function useDriveSync() {
 
   const signOut = useCallback(() => {
     clearToken()
-    tokenRef.current = null
+    tokenRef.current  = null
     fileIdRef.current = null
     setSyncStatus?.('idle')
   }, [setSyncStatus])
 
-  // ── Load from Drive ────────────────────────────────────────────────────────
-  const loadFromDrive = useCallback(async (token) => {
-    try {
-      setSyncStatus?.('syncing')
-      const file = await findFile(token)
-      if (!file) { setSyncStatus?.('idle'); return }
-      fileIdRef.current = file.id
-      const data = await readFile(file.id, token)
-      if (!data) { setSyncStatus?.('idle'); return }
-      useMinervaStore.setState(s => ({
-        ...s,
-        accounts:          data.accounts          ?? s.accounts,
-        assets:            data.assets            ?? s.assets,
-        liabilities:       data.liabilities       ?? s.liabilities,
-        transactions:      data.transactions      ?? s.transactions,
-        reconciliationLog: data.reconciliationLog ?? s.reconciliationLog,
-        budgets:           data.budgets           ?? s.budgets,
-        targets:           data.targets           ?? s.targets,
-        documents:         data.documents         ?? s.documents,
-        fx:                data.fx                ?? s.fx,
-        surplusConfig:     data.surplusConfig      ?? s.surplusConfig,
-        activeCurrency:    data.activeCurrency     ?? s.activeCurrency,
-        plannedSpends:     data.plannedSpends      ?? s.plannedSpends,
-      }))
-      useMinervaStore.getState()._recompute()
-      setLastSynced?.(new Date().toISOString())
-      setSyncStatus?.('idle')
-      console.log('[Minerva] Loaded from Drive')
-    } catch (e) {
-      console.error('[Minerva] Load failed:', e)
-      setSyncStatus?.('error')
-    }
-  }, [setSyncStatus, setLastSynced])
-
-  // ── Save to Drive (debounced) ──────────────────────────────────────────────
+  // Save to Drive (debounced) — WRITE ONLY
   const scheduleSave = useCallback(() => {
     if (!tokenRef.current) return
     clearTimeout(debounceRef.current)
@@ -170,18 +119,29 @@ export function useDriveSync() {
       try {
         setSyncStatus?.('syncing')
         const state = useMinervaStore.getState()
+        // Find file ID if we don't have it yet
+        if (!fileIdRef.current) {
+          const file = await findFile(tokenRef.current)
+          if (file) fileIdRef.current = file.id
+        }
         const newId = await writeFile(fileIdRef.current, {
-          accounts: state.accounts, assets: state.assets,
-          liabilities: state.liabilities, transactions: state.transactions,
-          reconciliationLog: state.reconciliationLog, budgets: state.budgets,
-          targets: state.targets, documents: state.documents,
-          fx: state.fx, surplusConfig: state.surplusConfig,
-          activeCurrency: state.activeCurrency, plannedSpends: state.plannedSpends,
-          liveLiquidity: state.liveLiquidity, netWorth: state.netWorth,
+          accounts:          state.accounts,
+          assets:            state.assets,
+          liabilities:       state.liabilities,
+          transactions:      state.transactions,
+          reconciliationLog: state.reconciliationLog,
+          budgets:           state.budgets,
+          targets:           state.targets,
+          documents:         state.documents,
+          fx:                state.fx,
+          surplusConfig:     state.surplusConfig,
+          activeCurrency:    state.activeCurrency,
+          plannedSpends:     state.plannedSpends,
         }, tokenRef.current)
         if (newId) fileIdRef.current = newId
         setLastSynced?.(new Date().toISOString())
         setSyncStatus?.('idle')
+        console.log('[Minerva] Saved to Drive')
       } catch (e) {
         console.error('[Minerva] Save failed:', e)
         setSyncStatus?.('error')
@@ -189,35 +149,24 @@ export function useDriveSync() {
     }, DEBOUNCE_MS)
   }, [setSyncStatus, setLastSynced])
 
-  // ── On mount: handle OAuth redirect token only - NO auto-load from Drive ──
-  // Auto-load is disabled to prevent Drive overwriting locally imported data
-  // User must manually trigger load via the Vault button
+  // On mount: grab token from OAuth redirect if present — NO auto-load
   useEffect(() => {
-    const token = parseTokenFromHash() ?? getStoredToken()
-    if (token) {
-      tokenRef.current = token
-      // Only store token - do NOT auto-load from Drive
-      if (parseTokenFromHash()) {
-        // Fresh OAuth redirect - safe to load
-        loadFromDrive(token)
-      }
+    const redirectToken = parseTokenFromHash()
+    if (redirectToken) {
+      tokenRef.current = redirectToken
+      console.log('[Minerva] Drive connected')
     }
-  }, [loadFromDrive])
+    // Do NOT load from Drive — localStorage is source of truth
+  }, [])
 
-  // ── Subscribe to store mutations ───────────────────────────────────────────
+  // Subscribe to store — save on financial data changes only
   useEffect(() => {
-    // Only save when actual financial data changes — not UI state
     const unsub = useMinervaStore.subscribe(
       (state) => ({
-        transactions:      state.transactions,
-        accounts:          state.accounts,
-        assets:            state.assets,
-        liabilities:       state.liabilities,
-        documents:         state.documents,
-        budgets:           state.budgets,
-        targets:           state.targets,
-        surplusConfig:     state.surplusConfig,
-        plannedSpends:     state.plannedSpends,
+        transactions: state.transactions,
+        accounts:     state.accounts,
+        documents:    state.documents,
+        budgets:      state.budgets,
       }),
       () => scheduleSave()
     )
@@ -228,7 +177,7 @@ export function useDriveSync() {
     syncStatus,
     signIn,
     signOut,
-    isSignedIn: !!tokenRef.current,
-    getToken: () => tokenRef.current,
+    isSignedIn:  !!tokenRef.current,
+    getToken:    () => tokenRef.current,
   }
 }
