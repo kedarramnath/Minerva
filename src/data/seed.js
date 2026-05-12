@@ -41,8 +41,8 @@ export const ACCOUNTS_SEED = [
     institution: 'ADCB',
     reconciledBalance: 0,
     reconciledDate: null,
-    notes: '3 income funds + 3 ETFs. Gross ~USD 837k. Net equity ~USD 350k after margin. Monthly divs USD 5,422 reinvested.',
-    active: true,
+    notes: 'Represented as asset (adcb-portfolio) + liability (adcb-margin) in Balance Sheet. Gross ~USD 837k net ~USD 350k.',
+    active: false,
   },
   {
     id: 'enbd-current-kedar',
