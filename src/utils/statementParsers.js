@@ -51,30 +51,32 @@ export function parseADCB(csvText) {
 // ── ENBD XLSX rows ────────────────────────────────────────────────────────────
 export function parseENBDCurrent(rows) {
   const r={accountNumber:null,currency:'AED',openingBalance:null,closingBalance:null,period:null,transactions:[],bankName:'ENBD',accountType:'current'}
-  const h0=String(rows[0]?.[0]||''); const am=h0.match(/\d{6,}/);if(am)r.accountNumber=am[0];const cm=h0.match(/(AED|USD)/);if(cm)r.currency=cm[1]
-  // Row 0=account header, Row 1-2=empty, Row 3=column headers, Row 4+=data
-  // Columns: Date(0), Details(1), Description(2), Amount(3), Currency(4), Balance(5), Debit/Credit(6), Status(7)
+  const h0=String(rows[0]?.[0]||''); const am=h0.match(/\d{6,}/); if(am) r.accountNumber=am[0]
+  r.currency='AED'
+  // Row 4+ = data. Columns: Date(0), Details(1), Description(2), Amount(3), Currency(4), Balance(5), DC(6)
   const dates=[]
   for(let i=4;i<rows.length;i++){
     const row=rows[i]; if(!row?.[0]) continue
-    // Handle both 'May 11, 2026' (full) and 'Apr 28, 2026' (abbreviated)
-    const rawDate = String(row[0]||'').trim()
-    let date = null
-    if (rawDate) {
-      const d = new Date(rawDate)
-      if (!isNaN(d)) date = d.toISOString().slice(0,10)
-    }
-    if (!date) continue
+    const rawDate=String(row[0]||'').trim()
+    let date=null
+    if(rawDate){ const d=new Date(rawDate); if(!isNaN(d)) date=d.toISOString().slice(0,10) }
+    if(!date) continue
     const amt=parseAmount(row[3]); if(amt===0) continue
     const dc=String(row[6]||'').toLowerCase()
     const amount=dc==='credit'?amt:-amt
-    const desc=cleanStr(row[2]||row[1])
-    const cur=cleanStr(row[4])||r.currency
+    const txnCur=cleanStr(row[4])||'AED'
     const bal=parseAmount(row[5])
+    const desc=cleanStr(row[2]||row[1])
     dates.push(date)
-    r.transactions.push({date,description:desc,amount,currency:cur,reference:'',balance:bal})
+    r.transactions.push({date,description:desc,amount,currency:txnCur,reference:'',balance:bal})
   }
-  if(dates.length>0){const s=[...dates].sort();r.period=s[0]+' to '+s[s.length-1];r.closingBalance=r.transactions[0]?.balance||0}
+  if(dates.length>0){
+    const s=[...dates].sort()
+    r.period=s[0]+' to '+s[s.length-1]
+    r.closingBalance=r.transactions[0]?.balance??null
+    const oldest=r.transactions[r.transactions.length-1]
+    if(oldest && oldest.currency==='AED') r.openingBalance=oldest.balance-oldest.amount
+  }
   return r
 }
 export function parseENBDCreditCard(rows) {
