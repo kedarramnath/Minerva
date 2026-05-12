@@ -189,12 +189,18 @@ export function useDriveSync() {
     }, DEBOUNCE_MS)
   }, [setSyncStatus, setLastSynced])
 
-  // ── On mount: check for OAuth redirect token ───────────────────────────────
+  // ── On mount: handle OAuth redirect token only - NO auto-load from Drive ──
+  // Auto-load is disabled to prevent Drive overwriting locally imported data
+  // User must manually trigger load via the Vault button
   useEffect(() => {
     const token = parseTokenFromHash() ?? getStoredToken()
     if (token) {
       tokenRef.current = token
-      loadFromDrive(token)
+      // Only store token - do NOT auto-load from Drive
+      if (parseTokenFromHash()) {
+        // Fresh OAuth redirect - safe to load
+        loadFromDrive(token)
+      }
     }
   }, [loadFromDrive])
 
